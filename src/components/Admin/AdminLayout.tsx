@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { 
@@ -31,8 +31,15 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter();
-  const { logout, isAdmin } = useAuth();
+  const { logout, isAdmin, user } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Debug: Log user role in production to help diagnose issues
+  useEffect(() => {
+    if (user) {
+      console.log("AdminLayout - User role:", user.role, "isAdmin:", isAdmin);
+    }
+  }, [user, isAdmin]);
 
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: LayoutDashboard, adminOnly: false },
@@ -50,8 +57,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Textos Frontend", href: "/admin/textos-frontend", icon: Type, adminOnly: true },
   ];
 
-  // Filter nav items based on user role
-  const filteredNavItems = navItems.filter(item => !item.adminOnly || isAdmin);
+  // Filter nav items based on user role - recalculates when isAdmin changes
+  const filteredNavItems = useMemo(() => {
+    const filtered = navItems.filter(item => !item.adminOnly || isAdmin);
+    console.log("Filtered nav items count:", filtered.length, "isAdmin:", isAdmin);
+    return filtered;
+  }, [isAdmin]);
 
   const handleLogout = () => {
     logout();
@@ -139,11 +150,11 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </Link>
 
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">Administrador</p>
-              <p className="text-xs text-muted-foreground">admin@arroios.pt</p>
+              <p className="text-sm font-medium">{user?.full_name || "Utilizador"}</p>
+              <p className="text-xs text-muted-foreground capitalize">{user?.role || "guest"}</p>
             </div>
             <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-bold">
-              AD
+              {user?.full_name?.substring(0, 2).toUpperCase() || "U"}
             </div>
           </div>
         </header>

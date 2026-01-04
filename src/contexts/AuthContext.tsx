@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useMemo } from "react";
 import { authService, AuthUser } from "@/services/authService";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -46,8 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   };
 
-  const isAdmin = user?.role === "admin";
-  const isStaff = user?.role === "staff" || user?.role === "admin";
+  // Use useMemo to ensure isAdmin and isStaff are recalculated when user changes
+  const isAdmin = useMemo(() => user?.role === "admin", [user]);
+  const isStaff = useMemo(() => user?.role === "staff" || user?.role === "admin", [user]);
 
   return (
     <AuthContext.Provider
