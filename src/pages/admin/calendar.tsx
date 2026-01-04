@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { OccupancyCalendar } from "@/components/Admin/OccupancyCalendar";
+import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
 import { bookingService } from "@/services/bookingService";
 import { roomService } from "@/services/roomService";
 import { Room } from "@/types";

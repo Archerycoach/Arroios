@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { CreateGuestDialog } from "@/components/Admin/CreateGuestDialog";
+import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,166 +103,168 @@ export default function ClientesPage() {
   }
 
   return (
-    <AdminLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Clientes</h1>
-            <p className="text-muted-foreground mt-2">
-              Gestão de hóspedes e histórico
-            </p>
-          </div>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            Novo Cliente
-          </Button>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid gap-4 md:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Clientes</CardTitle>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalGuests}</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Returning Rate</CardTitle>
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{returningRate}%</div>
-              <p className="text-xs text-muted-foreground">{returningGuests} clientes</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Satisfação</CardTitle>
-              <Star className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{avgSatisfaction}/5.0</div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">LTV Médio</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">€{avgLTV}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pesquisar Clientes</CardTitle>
-            <CardDescription>Encontre clientes por nome, email, telefone ou NIF</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Pesquisar..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+    <ProtectedAdminPage>
+      <AdminLayout>
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Clientes</h1>
+              <p className="text-muted-foreground mt-2">
+                Gestão de hóspedes e histórico
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <UserPlus className="h-4 w-4 mr-2" />
+              Novo Cliente
+            </Button>
+          </div>
 
-        {/* Guests Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Lista de Clientes ({filteredGuests.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Contacto</TableHead>
-                  <TableHead>Nacionalidade</TableHead>
-                  <TableHead>NIF</TableHead>
-                  <TableHead>Reservas</TableHead>
-                  <TableHead>Total Gasto</TableHead>
-                  <TableHead>Última Estadia</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredGuests.map((guest) => (
-                  <TableRow key={guest.id}>
-                    <TableCell className="font-medium">
-                      <div>
-                        <p>{guest.full_name}</p>
-                        {guest.bookingCount > 1 && (
-                          <Badge variant="secondary" className="text-xs mt-1">
-                            Returning
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-3 w-3 text-muted-foreground" />
-                          {guest.email}
-                        </div>
-                        {guest.phone && (
-                          <div className="flex items-center gap-2">
-                            <Phone className="h-3 w-3 text-muted-foreground" />
-                            {guest.phone}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{guest.nationality || "-"}</TableCell>
-                    <TableCell className="font-mono text-xs">{guest.tax_id || "-"}</TableCell>
-                    <TableCell>{guest.bookingCount}</TableCell>
-                    <TableCell className="font-semibold">€{guest.totalSpent.toFixed(2)}</TableCell>
-                    <TableCell>
-                      {guest.lastBooking ? (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-3 w-3 text-muted-foreground" />
-                          {format(new Date(guest.lastBooking), "dd MMM yyyy", { locale: pt })}
-                        </div>
-                      ) : (
-                        "-"
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
+          {/* Stats Cards */}
+          <div className="grid gap-4 md:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Clientes</CardTitle>
+                <Users className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totalGuests}</div>
+              </CardContent>
+            </Card>
 
-                {filteredGuests.length === 0 && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Returning Rate</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{returningRate}%</div>
+                <p className="text-xs text-muted-foreground">{returningGuests} clientes</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Satisfação</CardTitle>
+                <Star className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{avgSatisfaction}/5.0</div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">LTV Médio</CardTitle>
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">€{avgLTV}</div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Search */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Pesquisar Clientes</CardTitle>
+              <CardDescription>Encontre clientes por nome, email, telefone ou NIF</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Pesquisar..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Guests Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Lista de Clientes ({filteredGuests.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                      Nenhum cliente encontrado
-                    </TableCell>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Contacto</TableHead>
+                    <TableHead>Nacionalidade</TableHead>
+                    <TableHead>NIF</TableHead>
+                    <TableHead>Reservas</TableHead>
+                    <TableHead>Total Gasto</TableHead>
+                    <TableHead>Última Estadia</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredGuests.map((guest) => (
+                    <TableRow key={guest.id}>
+                      <TableCell className="font-medium">
+                        <div>
+                          <p>{guest.full_name}</p>
+                          {guest.bookingCount > 1 && (
+                            <Badge variant="secondary" className="text-xs mt-1">
+                              Returning
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Mail className="h-3 w-3 text-muted-foreground" />
+                            {guest.email}
+                          </div>
+                          {guest.phone && (
+                            <div className="flex items-center gap-2">
+                              <Phone className="h-3 w-3 text-muted-foreground" />
+                              {guest.phone}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>{guest.nationality || "-"}</TableCell>
+                      <TableCell className="font-mono text-xs">{guest.tax_id || "-"}</TableCell>
+                      <TableCell>{guest.bookingCount}</TableCell>
+                      <TableCell className="font-semibold">€{guest.totalSpent.toFixed(2)}</TableCell>
+                      <TableCell>
+                        {guest.lastBooking ? (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Calendar className="h-3 w-3 text-muted-foreground" />
+                            {format(new Date(guest.lastBooking), "dd MMM yyyy", { locale: pt })}
+                          </div>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
 
-        {/* Create Guest Dialog */}
-        <CreateGuestDialog
-          open={showCreateDialog}
-          onOpenChange={setShowCreateDialog}
-          onSuccess={loadGuests}
-        />
-      </div>
-    </AdminLayout>
+                  {filteredGuests.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                        Nenhum cliente encontrado
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Create Guest Dialog */}
+          <CreateGuestDialog
+            open={showCreateDialog}
+            onOpenChange={setShowCreateDialog}
+            onSuccess={loadGuests}
+          />
+        </div>
+      </AdminLayout>
+    </ProtectedAdminPage>
   );
 }

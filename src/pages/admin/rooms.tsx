@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
+import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -163,196 +164,198 @@ export default function RoomsPage() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Gestão de Quartos</h1>
-            <p className="text-muted-foreground">
-              Gerir quartos, preços e disponibilidade
-            </p>
-          </div>
-          <Button onClick={() => { setEditingRoom(null); setShowCreateDialog(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Novo Quarto
-          </Button>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Total de Quartos
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{rooms.length}</div>
-              <p className="text-xs text-muted-foreground">
-                {rooms.filter((r) => r.is_available).length} ativos
+      <ProtectedAdminPage>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Gestão de Quartos</h1>
+              <p className="text-muted-foreground">
+                Gerir quartos, preços e disponibilidade
               </p>
-            </CardContent>
-          </Card>
+            </div>
+            <Button onClick={() => { setEditingRoom(null); setShowCreateDialog(true); }}>
+              <Plus className="h-4 w-4 mr-2" />
+              Novo Quarto
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Total de Quartos
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{rooms.length}</div>
+                <p className="text-xs text-muted-foreground">
+                  {rooms.filter((r) => r.is_available).length} ativos
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Preço Médio
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">€{avgPrice}</div>
+                <p className="text-xs text-muted-foreground">por noite</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Capacidade Total
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totalCapacity}</div>
+                <p className="text-xs text-muted-foreground">hóspedes</p>
+              </CardContent>
+            </Card>
+          </div>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Preço Médio
-              </CardTitle>
+            <CardHeader>
+              <CardTitle>Lista de Quartos</CardTitle>
+              <CardDescription>
+                Todos os quartos disponíveis no sistema
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">€{avgPrice}</div>
-              <p className="text-xs text-muted-foreground">por noite</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">
-                Capacidade Total
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totalCapacity}</div>
-              <p className="text-xs text-muted-foreground">hóspedes</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Lista de Quartos</CardTitle>
-            <CardDescription>
-              Todos os quartos disponíveis no sistema
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Capacidade</TableHead>
-                  <TableHead>Tipo Arrendamento</TableHead>
-                  <TableHead>Preço</TableHead>
-                  <TableHead>Min. Noites</TableHead>
-                  <TableHead>Estado</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rooms.map((room) => (
-                  <TableRow key={room.id}>
-                    <TableCell className="font-medium">{room.name}</TableCell>
-                    <TableCell className="capitalize">{room.room_type}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                        {room.max_guests}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={room.rental_type === "nightly" ? "default" : "secondary"}>
-                        {room.rental_type === "nightly" ? (
-                          <div className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            Por Noite
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1">
-                            <CalendarDays className="h-3 w-3" />
-                            Quinzenal
-                          </div>
-                        )}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-1">
-                          <Euro className="h-3 w-3 text-muted-foreground" />
-                          <span className="font-medium text-sm">
-                            {room.daily_price?.toFixed(2) || room.base_price?.toFixed(2)}
-                          </span>
-                          <span className="text-xs text-muted-foreground">/dia</span>
-                        </div>
-                        
-                        {room.biweekly_price && room.biweekly_price > 0 && (
-                          <div className="flex items-center gap-1">
-                            <Euro className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm">
-                              {room.biweekly_price.toFixed(2)}
-                            </span>
-                            <span className="text-xs text-muted-foreground">/15d</span>
-                          </div>
-                        )}
-                        
-                        {room.monthly_price && room.monthly_price > 0 && (
-                          <div className="flex items-center gap-1">
-                            <Euro className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm">
-                              {room.monthly_price.toFixed(2)}
-                            </span>
-                            <span className="text-xs text-muted-foreground">/mês</span>
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        {room.minimum_nights}{" "}
-                        {room.minimum_nights === 1 ? "noite" : "noites"}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={room.is_available ? "default" : "secondary"}>
-                        {room.is_available ? "Disponível" : "Indisponível"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            handleToggleActive(room.id, room.is_available)
-                          }
-                        >
-                          {room.is_available ? (
-                            <EyeOff className="h-4 w-4" />
-                          ) : (
-                            <Eye className="h-4 w-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenDialog(room)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDelete(room.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nome</TableHead>
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Capacidade</TableHead>
+                    <TableHead>Tipo Arrendamento</TableHead>
+                    <TableHead>Preço</TableHead>
+                    <TableHead>Min. Noites</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {rooms.map((room) => (
+                    <TableRow key={room.id}>
+                      <TableCell className="font-medium">{room.name}</TableCell>
+                      <TableCell className="capitalize">{room.room_type}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Users className="h-4 w-4 text-muted-foreground" />
+                          {room.max_guests}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={room.rental_type === "nightly" ? "default" : "secondary"}>
+                          {room.rental_type === "nightly" ? (
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              Por Noite
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <CalendarDays className="h-3 w-3" />
+                              Quinzenal
+                            </div>
+                          )}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <Euro className="h-3 w-3 text-muted-foreground" />
+                            <span className="font-medium text-sm">
+                              {room.daily_price?.toFixed(2) || room.base_price?.toFixed(2)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">/dia</span>
+                          </div>
+                          
+                          {room.biweekly_price && room.biweekly_price > 0 && (
+                            <div className="flex items-center gap-1">
+                              <Euro className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">
+                                {room.biweekly_price.toFixed(2)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">/15d</span>
+                            </div>
+                          )}
+                          
+                          {room.monthly_price && room.monthly_price > 0 && (
+                            <div className="flex items-center gap-1">
+                              <Euro className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-sm">
+                                {room.monthly_price.toFixed(2)}
+                              </span>
+                              <span className="text-xs text-muted-foreground">/mês</span>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Calendar className="h-4 w-4 text-muted-foreground" />
+                          {room.minimum_nights}{" "}
+                          {room.minimum_nights === 1 ? "noite" : "noites"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={room.is_available ? "default" : "secondary"}>
+                          {room.is_available ? "Disponível" : "Indisponível"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() =>
+                              handleToggleActive(room.id, room.is_available)
+                            }
+                          >
+                            {room.is_available ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenDialog(room)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDelete(room.id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
 
-        {/* Create/Edit Room Dialog */}
-        <CreateRoomDialog
-          open={showCreateDialog}
-          onOpenChange={setShowCreateDialog}
-          onSuccess={loadRooms}
-          editRoom={editingRoom}
-        />
-      </div>
+          {/* Create/Edit Room Dialog */}
+          <CreateRoomDialog
+            open={showCreateDialog}
+            onOpenChange={setShowCreateDialog}
+            onSuccess={loadRooms}
+            editRoom={editingRoom}
+          />
+        </div>
+      </ProtectedAdminPage>
     </AdminLayout>
   );
 }

@@ -5,12 +5,14 @@ import { useState, useEffect } from "react";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { settingsService } from "@/services/settingsService";
 import Image from "next/image";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function Header() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [propertyName, setPropertyName] = useState("Gestão Arroios");
+  const { user } = useAuth();
 
   useEffect(() => {
     loadSettings();
@@ -27,6 +29,16 @@ export function Header() {
       if (name && typeof name === "string") setPropertyName(name);
     } catch (error) {
       console.error("Error loading header settings:", error);
+    }
+  };
+
+  const handleAdminClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    
+    if (!user) {
+      router.push("/login");
+    } else {
+      router.push("/admin");
     }
   };
 
@@ -82,13 +94,13 @@ export function Header() {
           {/* Desktop Actions */}
           <div className="hidden md:flex md:items-center md:gap-4">
             <ThemeSwitch />
-            <Link
-              href="/admin"
+            <button
+              onClick={handleAdminClick}
               className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition-all hover:shadow-xl hover:scale-105"
             >
               <LayoutDashboard className="h-4 w-4" />
               Admin
-            </Link>
+            </button>
           </div>
 
           {/* Mobile Menu Button */}
@@ -126,14 +138,16 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
-            <Link
-              href="/admin"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-3 py-2.5 text-base font-semibold text-white shadow-lg"
+            <button
+              onClick={(e) => {
+                handleAdminClick(e);
+                setMobileMenuOpen(false);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-3 py-2.5 text-base font-semibold text-white shadow-lg w-full"
             >
               <LayoutDashboard className="h-5 w-5" />
               Admin
-            </Link>
+            </button>
           </nav>
         </div>
       )}

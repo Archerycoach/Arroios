@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { CreateBookingDialog } from "@/components/Admin/CreateBookingDialog";
+import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,145 +123,147 @@ export default function BookingsPage() {
   }
 
   return (
-    <AdminLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Reservas</h1>
-            <p className="text-muted-foreground mt-2">
-              Gestão de todas as reservas
-            </p>
-          </div>
-          <Button onClick={() => setShowCreateDialog(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nova Reserva
-          </Button>
-        </div>
-
-        {/* Filters */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Pesquisar Reservas</CardTitle>
-            <CardDescription>Encontre reservas por ID, quarto ou hóspede</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Pesquisar..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Button variant="outline">
-                <Filter className="h-4 w-4 mr-2" />
-                Filtros
-              </Button>
+    <ProtectedAdminPage>
+      <AdminLayout>
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Reservas</h1>
+              <p className="text-muted-foreground mt-2">
+                Gestão de todas as reservas
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <Button onClick={() => setShowCreateDialog(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Nova Reserva
+            </Button>
+          </div>
 
-        {/* Bookings Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Lista de Reservas ({filteredBookings.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Quarto</TableHead>
-                  <TableHead>Hóspede</TableHead>
-                  <TableHead>Check-in</TableHead>
-                  <TableHead>Check-out</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead className="text-right">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredBookings.map((booking) => (
-                  <TableRow key={booking.id}>
-                    <TableCell className="font-mono text-xs">
-                      {booking.id.slice(0, 8)}
-                    </TableCell>
-                    <TableCell>
-                      {booking.rooms?.room_number || booking.rooms?.name || "N/A"}
-                    </TableCell>
-                    <TableCell>{booking.guests?.full_name || "N/A"}</TableCell>
-                    <TableCell>
-                      {format(new Date(booking.check_in_date), "dd MMM yyyy", { locale: pt })}
-                    </TableCell>
-                    <TableCell>
-                      {format(new Date(booking.check_out_date), "dd MMM yyyy", { locale: pt })}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(booking.status)}</TableCell>
-                    <TableCell className="font-semibold">
-                      €{booking.total_amount.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Ações</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem>
-                            <Eye className="h-4 w-4 mr-2" />
-                            Ver Detalhes
-                          </DropdownMenuItem>
-                          {booking.status === "pending" && (
-                            <DropdownMenuItem onClick={() => handleStatusChange(booking.id, "confirmed")}>
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              Confirmar
-                            </DropdownMenuItem>
-                          )}
-                          {booking.status !== "cancelled" && (
-                            <DropdownMenuItem onClick={() => handleStatusChange(booking.id, "cancelled")}>
-                              <XCircle className="h-4 w-4 mr-2" />
-                              Cancelar
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(booking.id)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+          {/* Filters */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Pesquisar Reservas</CardTitle>
+              <CardDescription>Encontre reservas por ID, quarto ou hóspede</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Pesquisar..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button variant="outline">
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filtros
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
 
-                {filteredBookings.length === 0 && (
+          {/* Bookings Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Lista de Reservas ({filteredBookings.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      Nenhuma reserva encontrada
-                    </TableCell>
+                    <TableHead>ID</TableHead>
+                    <TableHead>Quarto</TableHead>
+                    <TableHead>Hóspede</TableHead>
+                    <TableHead>Check-in</TableHead>
+                    <TableHead>Check-out</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {filteredBookings.map((booking) => (
+                    <TableRow key={booking.id}>
+                      <TableCell className="font-mono text-xs">
+                        {booking.id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell>
+                        {booking.rooms?.room_number || booking.rooms?.name || "N/A"}
+                      </TableCell>
+                      <TableCell>{booking.guests?.full_name || "N/A"}</TableCell>
+                      <TableCell>
+                        {format(new Date(booking.check_in_date), "dd MMM yyyy", { locale: pt })}
+                      </TableCell>
+                      <TableCell>
+                        {format(new Date(booking.check_out_date), "dd MMM yyyy", { locale: pt })}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(booking.status)}</TableCell>
+                      <TableCell className="font-semibold">
+                        €{booking.total_amount.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Ações</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Ver Detalhes
+                            </DropdownMenuItem>
+                            {booking.status === "pending" && (
+                              <DropdownMenuItem onClick={() => handleStatusChange(booking.id, "confirmed")}>
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Confirmar
+                              </DropdownMenuItem>
+                            )}
+                            {booking.status !== "cancelled" && (
+                              <DropdownMenuItem onClick={() => handleStatusChange(booking.id, "cancelled")}>
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Cancelar
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(booking.id)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Eliminar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
 
-        {/* Create Booking Dialog */}
-        <CreateBookingDialog
-          open={showCreateDialog}
-          onOpenChange={setShowCreateDialog}
-          onSuccess={loadBookings}
-        />
-      </div>
-    </AdminLayout>
+                  {filteredBookings.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                        Nenhuma reserva encontrada
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Create Booking Dialog */}
+          <CreateBookingDialog
+            open={showCreateDialog}
+            onOpenChange={setShowCreateDialog}
+            onSuccess={loadBookings}
+          />
+        </div>
+      </AdminLayout>
+    </ProtectedAdminPage>
   );
 }
