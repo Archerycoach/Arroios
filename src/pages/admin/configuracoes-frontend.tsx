@@ -1,5 +1,6 @@
 import { useState, useEffect, FormEvent } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
+import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -205,311 +206,313 @@ export default function ConfiguracoesFrontend() {
 
   return (
     <AdminLayout>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold">Configurações do Frontend</h1>
-          <p className="text-muted-foreground mt-1">
-            Configure a aparência e informações do site público
-          </p>
-        </div>
+      <ProtectedAdminPage>
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-3xl font-bold">Configurações do Frontend</h1>
+            <p className="text-muted-foreground mt-1">
+              Configure a aparência e informações do site público
+            </p>
+          </div>
 
-        {/* Property Name */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Nome do Estabelecimento</CardTitle>
-            <CardDescription>
-              Este nome aparecerá no cabeçalho e rodapé do site
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="property-name">Nome</Label>
-              <Input
-                id="property-name"
-                value={settings.name}
-                onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                placeholder="Nome do Estabelecimento"
-              />
-            </div>
-            <Button onClick={handleSavePropertyName} disabled={isSaving}>
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Guardar Nome
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Logo */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Logo</CardTitle>
-            <CardDescription>
-              Logo que aparecerá no canto superior esquerdo (recomendado: 200x60px)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {settings.logo_url && (
-              <div className="relative w-48 h-16 border rounded-lg overflow-hidden">
-                <Image
-                  src={settings.logo_url}
-                  alt="Logo"
-                  fill
-                  className="object-contain"
+          {/* Property Name */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Nome do Estabelecimento</CardTitle>
+              <CardDescription>
+                Este nome aparecerá no cabeçalho e rodapé do site
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="property-name">Nome</Label>
+                <Input
+                  id="property-name"
+                  value={settings.name}
+                  onChange={(e) => setSettings({ ...settings, name: e.target.value })}
+                  placeholder="Nome do Estabelecimento"
                 />
               </div>
-            )}
-            <div>
-              <Label htmlFor="logo-upload" className="cursor-pointer">
-                <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md w-fit hover:bg-primary/90">
-                  {isUploadingLogo ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4" />
-                  )}
-                  {settings.logo_url ? "Alterar Logo" : "Upload Logo"}
-                </div>
-              </Label>
-              <Input
-                id="logo-upload"
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleLogoUpload}
-                disabled={isUploadingLogo}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Amenities */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Comodidades Incluídas</CardTitle>
-            <CardDescription>
-              Liste as comodidades que estão incluídas nas reservas
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                value={newAmenity}
-                onChange={(e) => setNewAmenity(e.target.value)}
-                placeholder="Ex: Wi-Fi Gratuito, Ar Condicionado..."
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleAddAmenity();
-                  }
-                }}
-              />
-              <Button onClick={handleAddAmenity} size="icon">
-                <Plus className="w-4 h-4" />
+              <Button onClick={handleSavePropertyName} disabled={isSaving}>
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Guardar Nome
               </Button>
-            </div>
+            </CardContent>
+          </Card>
 
-            {settings.amenities.length > 0 && (
-              <div className="space-y-2">
-                {settings.amenities.map((amenity, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between p-3 border rounded-lg"
-                  >
-                    <span>{amenity}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemoveAmenity(index)}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <Button onClick={handleSaveAmenities} disabled={isSaving}>
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Guardar Comodidades
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Gallery */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Galeria de Fotos</CardTitle>
-            <CardDescription>
-              Fotos do estabelecimento que aparecerão no site
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="gallery-upload" className="cursor-pointer">
-                <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md w-fit hover:bg-primary/90">
-                  {isUploadingGallery ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <ImageIcon className="w-4 h-4" />
-                  )}
-                  Adicionar Fotos
+          {/* Logo */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Logo</CardTitle>
+              <CardDescription>
+                Logo que aparecerá no canto superior esquerdo (recomendado: 200x60px)
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {settings.logo_url && (
+                <div className="relative w-48 h-16 border rounded-lg overflow-hidden">
+                  <Image
+                    src={settings.logo_url}
+                    alt="Logo"
+                    fill
+                    className="object-contain"
+                  />
                 </div>
-              </Label>
-              <Input
-                id="gallery-upload"
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={handleGalleryUpload}
-                disabled={isUploadingGallery}
-              />
-            </div>
+              )}
+              <div>
+                <Label htmlFor="logo-upload" className="cursor-pointer">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md w-fit hover:bg-primary/90">
+                    {isUploadingLogo ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                    {settings.logo_url ? "Alterar Logo" : "Upload Logo"}
+                  </div>
+                </Label>
+                <Input
+                  id="logo-upload"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoUpload}
+                  disabled={isUploadingLogo}
+                />
+              </div>
+            </CardContent>
+          </Card>
 
-            {settings.gallery_images.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {settings.gallery_images.map((image, index) => (
-                  <div key={index} className="relative aspect-video border rounded-lg overflow-hidden group">
-                    <Image
-                      src={image}
-                      alt={`Galeria ${index + 1}`}
-                      fill
-                      className="object-cover"
+          {/* Amenities */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Comodidades Incluídas</CardTitle>
+              <CardDescription>
+                Liste as comodidades que estão incluídas nas reservas
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex gap-2">
+                <Input
+                  value={newAmenity}
+                  onChange={(e) => setNewAmenity(e.target.value)}
+                  placeholder="Ex: Wi-Fi Gratuito, Ar Condicionado..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddAmenity();
+                    }
+                  }}
+                />
+                <Button onClick={handleAddAmenity} size="icon">
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </div>
+
+              {settings.amenities.length > 0 && (
+                <div className="space-y-2">
+                  {settings.amenities.map((amenity, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-3 border rounded-lg"
+                    >
+                      <span>{amenity}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleRemoveAmenity(index)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button onClick={handleSaveAmenities} disabled={isSaving}>
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Guardar Comodidades
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Gallery */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Galeria de Fotos</CardTitle>
+              <CardDescription>
+                Fotos do estabelecimento que aparecerão no site
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="gallery-upload" className="cursor-pointer">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md w-fit hover:bg-primary/90">
+                    {isUploadingGallery ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4" />
+                    )}
+                    Adicionar Fotos
+                  </div>
+                </Label>
+                <Input
+                  id="gallery-upload"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleGalleryUpload}
+                  disabled={isUploadingGallery}
+                />
+              </div>
+
+              {settings.gallery_images.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {settings.gallery_images.map((image, index) => (
+                    <div key={index} className="relative aspect-video border rounded-lg overflow-hidden group">
+                      <Image
+                        src={image}
+                        alt={`Galeria ${index + 1}`}
+                        fill
+                        className="object-cover"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => handleRemoveGalleryImage(index)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Footer Info */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Informações do Rodapé</CardTitle>
+              <CardDescription>
+                Informações de contato que aparecerão no rodapé do site
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="footer-address">Endereço</Label>
+                <Input
+                  id="footer-address"
+                  value={settings.footer.address}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      footer: { ...settings.footer, address: e.target.value },
+                    })
+                  }
+                  placeholder="Rua, Cidade, Código Postal"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="footer-phone">Telefone</Label>
+                <Input
+                  id="footer-phone"
+                  value={settings.footer.phone}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      footer: { ...settings.footer, phone: e.target.value },
+                    })
+                  }
+                  placeholder="+351 XXX XXX XXX"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="footer-email">Email</Label>
+                <Input
+                  id="footer-email"
+                  type="email"
+                  value={settings.footer.email}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      footer: { ...settings.footer, email: e.target.value },
+                    })
+                  }
+                  placeholder="contacto@exemplo.com"
+                />
+              </div>
+
+              <div className="border-t pt-4 mt-4">
+                <h3 className="font-semibold mb-3">Redes Sociais (Opcional)</h3>
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="footer-facebook">Facebook</Label>
+                    <Input
+                      id="footer-facebook"
+                      value={settings.footer.social?.facebook || ""}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          footer: {
+                            ...settings.footer,
+                            social: { ...settings.footer.social, facebook: e.target.value },
+                          },
+                        })
+                      }
+                      placeholder="https://facebook.com/..."
                     />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => handleRemoveGalleryImage(index)}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Footer Info */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Informações do Rodapé</CardTitle>
-            <CardDescription>
-              Informações de contato que aparecerão no rodapé do site
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="footer-address">Endereço</Label>
-              <Input
-                id="footer-address"
-                value={settings.footer.address}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    footer: { ...settings.footer, address: e.target.value },
-                  })
-                }
-                placeholder="Rua, Cidade, Código Postal"
-              />
-            </div>
+                  <div>
+                    <Label htmlFor="footer-instagram">Instagram</Label>
+                    <Input
+                      id="footer-instagram"
+                      value={settings.footer.social?.instagram || ""}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          footer: {
+                            ...settings.footer,
+                            social: { ...settings.footer.social, instagram: e.target.value },
+                          },
+                        })
+                      }
+                      placeholder="https://instagram.com/..."
+                    />
+                  </div>
 
-            <div>
-              <Label htmlFor="footer-phone">Telefone</Label>
-              <Input
-                id="footer-phone"
-                value={settings.footer.phone}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    footer: { ...settings.footer, phone: e.target.value },
-                  })
-                }
-                placeholder="+351 XXX XXX XXX"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="footer-email">Email</Label>
-              <Input
-                id="footer-email"
-                type="email"
-                value={settings.footer.email}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    footer: { ...settings.footer, email: e.target.value },
-                  })
-                }
-                placeholder="contacto@exemplo.com"
-              />
-            </div>
-
-            <div className="border-t pt-4 mt-4">
-              <h3 className="font-semibold mb-3">Redes Sociais (Opcional)</h3>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="footer-facebook">Facebook</Label>
-                  <Input
-                    id="footer-facebook"
-                    value={settings.footer.social?.facebook || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        footer: {
-                          ...settings.footer,
-                          social: { ...settings.footer.social, facebook: e.target.value },
-                        },
-                      })
-                    }
-                    placeholder="https://facebook.com/..."
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="footer-instagram">Instagram</Label>
-                  <Input
-                    id="footer-instagram"
-                    value={settings.footer.social?.instagram || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        footer: {
-                          ...settings.footer,
-                          social: { ...settings.footer.social, instagram: e.target.value },
-                        },
-                      })
-                    }
-                    placeholder="https://instagram.com/..."
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="footer-twitter">Twitter / X</Label>
-                  <Input
-                    id="footer-twitter"
-                    value={settings.footer.social?.twitter || ""}
-                    onChange={(e) =>
-                      setSettings({
-                        ...settings,
-                        footer: {
-                          ...settings.footer,
-                          social: { ...settings.footer.social, twitter: e.target.value },
-                        },
-                      })
-                    }
-                    placeholder="https://twitter.com/..."
-                  />
+                  <div>
+                    <Label htmlFor="footer-twitter">Twitter / X</Label>
+                    <Input
+                      id="footer-twitter"
+                      value={settings.footer.social?.twitter || ""}
+                      onChange={(e) =>
+                        setSettings({
+                          ...settings,
+                          footer: {
+                            ...settings.footer,
+                            social: { ...settings.footer.social, twitter: e.target.value },
+                          },
+                        })
+                      }
+                      placeholder="https://twitter.com/..."
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <Button onClick={handleSaveFooter} disabled={isSaving}>
-              {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Guardar Informações do Rodapé
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+              <Button onClick={handleSaveFooter} disabled={isSaving}>
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Guardar Informações do Rodapé
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </ProtectedAdminPage>
     </AdminLayout>
   );
 }

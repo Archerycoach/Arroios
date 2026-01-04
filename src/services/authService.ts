@@ -27,10 +27,31 @@ const getRedirectURL = () => {
   return "http://localhost:3000/auth/callback";
 };
 
+// Security: Sanitize error messages to prevent information disclosure
+const sanitizeError = (error: any): string => {
+  // Don't expose detailed database errors to users
+  if (error.message?.includes("duplicate key")) {
+    return "Este email já está registado";
+  }
+  if (error.message?.includes("invalid") || error.message?.includes("Invalid")) {
+    return "Credenciais inválidas";
+  }
+  return "Ocorreu um erro. Por favor, tente novamente.";
+};
+
 export const authService = {
   // Sign up new user
   async signUp(email: string, password: string, fullName: string): Promise<AuthResponse> {
     try {
+      // Security: Validate input
+      if (!email || !password || !fullName) {
+        return { user: null, error: { message: "Todos os campos são obrigatórios" } };
+      }
+
+      if (password.length < 6) {
+        return { user: null, error: { message: "A password deve ter pelo menos 6 caracteres" } };
+      }
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -42,11 +63,11 @@ export const authService = {
       });
 
       if (error) {
-        return { user: null, error: { message: error.message } };
+        return { user: null, error: { message: sanitizeError(error) } };
       }
 
       if (!data.user) {
-        return { user: null, error: { message: "Failed to create user" } };
+        return { user: null, error: { message: "Falha ao criar utilizador" } };
       }
 
       // Create user record with guest role by default
@@ -60,7 +81,10 @@ export const authService = {
         });
 
       if (userError) {
-        console.error("Error creating user record:", userError);
+        // Security: Don't log sensitive user data in production
+        if (process.env.NODE_ENV === "development") {
+          console.error("Error creating user record:", userError);
+        }
       }
 
       return {
@@ -73,24 +97,29 @@ export const authService = {
         error: null,
       };
     } catch (error: any) {
-      return { user: null, error: { message: error.message } };
+      return { user: null, error: { message: sanitizeError(error) } };
     }
   },
 
   // Sign in existing user
   async signIn(email: string, password: string): Promise<AuthResponse> {
     try {
+      // Security: Validate input
+      if (!email || !password) {
+        return { user: null, error: { message: "Email e password são obrigatórios" } };
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
-        return { user: null, error: { message: error.message } };
+        return { user: null, error: { message: sanitizeError(error) } };
       }
 
       if (!data.user) {
-        return { user: null, error: { message: "Authentication failed" } };
+        return { user: null, error: { message: "Falha na autenticação" } };
       }
 
       // Get user record with role
@@ -101,7 +130,9 @@ export const authService = {
         .single();
 
       if (userError) {
-        console.error("Error fetching user record:", userError);
+        if (process.env.NODE_ENV === "development") {
+          console.error("Error fetching user record:", userError);
+        }
       }
 
       return {
@@ -114,7 +145,7 @@ export const authService = {
         error: null,
       };
     } catch (error: any) {
-      return { user: null, error: { message: error.message } };
+      return { user: null, error: { message: sanitizeError(error) } };
     }
   },
 
@@ -122,7 +153,9 @@ export const authService = {
   async signOut(): Promise<void> {
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.error("Error signing out:", error);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error signing out:", error);
+      }
       throw error;
     }
   },
@@ -144,7 +177,9 @@ export const authService = {
         .single();
 
       if (userError) {
-        console.error("Error fetching user record:", userError);
+        if (process.env.NODE_ENV === "development") {
+          console.error("Error fetching user record:", userError);
+        }
       }
 
       return {
@@ -154,7 +189,9 @@ export const authService = {
         role: (userRecord?.role as UserRole) || "guest",
       };
     } catch (error) {
-      console.error("Error getting current user:", error);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error getting current user:", error);
+      }
       return null;
     }
   },
@@ -169,8 +206,10 @@ export const authService = {
     });
 
     if (error) {
-      console.error("OAuth sign in error:", error);
-      return { error };
+      if (process.env.NODE_ENV === "development") {
+        console.error("OAuth sign in error:", error);
+      }
+      return { error: { message: sanitizeError(error) } };
     }
 
     return { data, error: null };
@@ -182,11 +221,54 @@ export const authService = {
     return !!session;
   },
 
+  // Request password reset
+  async requestPasswordReset(email: string) {
+    // Security: Validate email format
+    if (!email || !email.includes("@")) {
+      return { error: { message: "Email inválido" } };
+    }
+
+    const redirectUrl = typeof window !== "undefined" 
+      ? `${window.location.origin}/redefinir-senha`
+      : "http://localhost:3000/redefinir-senha";
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: redirectUrl,
+    });
+
+    if (error) {
+      // Security: Don't reveal if email exists or not
+      return { error: { message: "Se o email existir, receberá instruções para recuperação" } };
+    }
+
+    return { error: null };
+  },
+
+  // Reset password (update user password)
+  async resetPassword(password: string) {
+    // Security: Validate password strength
+    if (!password || password.length < 6) {
+      return { error: { message: "A password deve ter pelo menos 6 caracteres" } };
+    }
+
+    const { data, error } = await supabase.auth.updateUser({
+      password: password
+    });
+
+    if (error) {
+      return { error: { message: sanitizeError(error) } };
+    }
+
+    return { data, error: null };
+  },
+
   // Get session
   async getSession() {
     const { data: { session }, error } = await supabase.auth.getSession();
     if (error) {
-      console.error("Error getting session:", error);
+      if (process.env.NODE_ENV === "development") {
+        console.error("Error getting session:", error);
+      }
       return null;
     }
     return session;

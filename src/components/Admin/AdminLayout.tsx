@@ -31,23 +31,27 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   const router = useRouter();
-  const { logout } = useAuth(); // Assuming isAuthenticated checks would happen in a protected route wrapper or middleware
+  const { logout, isAdmin } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const navItems = [
-    { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
-    { name: "Calendário", href: "/admin/calendar", icon: Calendar },
-    { name: "Reservas", href: "/admin/bookings", icon: CalendarCheck },
-    { name: "Quartos", href: "/admin/rooms", icon: BedDouble },
-    { name: "Receitas", href: "/admin/receitas", icon: TrendingUp },
-    { name: "Despesas", href: "/admin/expenses", icon: Wallet },
-    { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign },
-    { name: "Relatórios", href: "/admin/relatorios", icon: TrendingUp },
-    { name: "Clientes", href: "/admin/clientes", icon: Users },
-    { name: "Configurações", href: "/admin/configuracoes", icon: Settings },
-    { name: "Config. Frontend", href: "/admin/configuracoes-frontend", icon: Palette },
-    { name: "Textos Frontend", href: "/admin/textos-frontend", icon: Type },
+    { name: "Dashboard", href: "/admin", icon: LayoutDashboard, adminOnly: false },
+    { name: "Calendário", href: "/admin/calendar", icon: Calendar, adminOnly: false },
+    { name: "Reservas", href: "/admin/bookings", icon: CalendarCheck, adminOnly: false },
+    { name: "Quartos", href: "/admin/rooms", icon: BedDouble, adminOnly: false },
+    { name: "Receitas", href: "/admin/receitas", icon: TrendingUp, adminOnly: false },
+    { name: "Despesas", href: "/admin/expenses", icon: Wallet, adminOnly: false },
+    { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign, adminOnly: true },
+    { name: "Relatórios", href: "/admin/relatorios", icon: TrendingUp, adminOnly: true },
+    { name: "Clientes", href: "/admin/clientes", icon: Users, adminOnly: false },
+    { name: "Utilizadores", href: "/admin/utilizadores", icon: Users, adminOnly: true },
+    { name: "Configurações", href: "/admin/configuracoes", icon: Settings, adminOnly: true },
+    { name: "Config. Frontend", href: "/admin/configuracoes-frontend", icon: Palette, adminOnly: true },
+    { name: "Textos Frontend", href: "/admin/textos-frontend", icon: Type, adminOnly: true },
   ];
+
+  // Filter nav items based on user role
+  const filteredNavItems = navItems.filter(item => !item.adminOnly || isAdmin);
 
   const handleLogout = () => {
     logout();
@@ -81,7 +85,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
           </div>
 
           <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const isActive = router.pathname === item.href;
               return (
                 <Link key={item.href} href={item.href}>
