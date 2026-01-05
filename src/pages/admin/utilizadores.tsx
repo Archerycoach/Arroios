@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { userService } from "@/services/userService";
-import { Users, Search, Shield, UserCog, User, Loader2, Mail, Phone, Calendar, Plus, Edit, Eye, EyeOff } from "lucide-react";
+import { Users, Search, Shield, UserCog, User, Loader2, Mail, Phone, Calendar, Plus, Edit, Eye, EyeOff, Trash2, Key } from "lucide-react";
 import { format } from "date-fns";
 import { pt } from "date-fns/locale";
 import type { Database } from "@/integrations/supabase/types";
@@ -47,6 +47,11 @@ export default function UtilizadoresPage() {
     phone: "",
     role: "guest" as UserRole,
   });
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -172,6 +177,59 @@ export default function UtilizadoresPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!selectedUser) return;
+
+    try {
+      setSubmitting(true);
+      await userService.deleteUser(selectedUser.id);
+      await loadUsers();
+      await loadStats();
+      setDeleteDialogOpen(false);
+      setSelectedUser(null);
+      alert("Utilizador eliminado com sucesso!");
+    } catch (error: any) {
+      console.error("Error deleting user:", error);
+      alert(error.message || "Erro ao eliminar utilizador");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenPasswordDialog = (user: User) => {
+    setSelectedUser(user);
+    setNewPassword("");
+    setShowNewPassword(false);
+    setPasswordDialogOpen(true);
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!selectedUser) return;
+
+    if (!newPassword || newPassword.length < 6) {
+      alert("A password deve ter pelo menos 6 caracteres");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await userService.updateUserPassword(selectedUser.id, newPassword);
+      setPasswordDialogOpen(false);
+      setNewPassword("");
+      alert("Password atualizada com sucesso!");
+    } catch (error: any) {
+      console.error("Error updating password:", error);
+      alert(error.message || "Erro ao atualizar password");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleOpenDeleteDialog = (user: User) => {
+    setSelectedUser(user);
+    setDeleteDialogOpen(true);
   };
 
   const getRoleBadge = (role: UserRole) => {
@@ -366,14 +424,29 @@ export default function UtilizadoresPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEditUser(user)}
-                            >
-                              <Edit className="mr-2 h-4 w-4" />
-                              Editar
-                            </Button>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditUser(user)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenPasswordDialog(user)}
+                              >
+                                <Key className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => handleOpenDeleteDialog(user)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -600,6 +673,127 @@ export default function UtilizadoresPage() {
                     </>
                   ) : (
                     "Guardar Alterações"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={passwordDialogOpen} onOpenChange={setPasswordDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Alterar Password</DialogTitle>
+                <DialogDescription>
+                  Definir nova password para {selectedUser?.full_name || selectedUser?.email}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Nova Password *</Label>
+                  <div className="relative">
+                    <Input
+                      type={showNewPassword ? "text" : "password"}
+                      placeholder="Mínimo 6 caracteres"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                    >
+                      {showNewPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    A password será atualizada imediatamente
+                  </p>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setPasswordDialogOpen(false)}
+                  disabled={submitting}
+                >
+                  Cancelar
+                </Button>
+                <Button onClick={handleUpdatePassword} disabled={submitting}>
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      A atualizar...
+                    </>
+                  ) : (
+                    <>
+                      <Key className="mr-2 h-4 w-4" />
+                      Alterar Password
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Eliminar Utilizador</DialogTitle>
+                <DialogDescription>
+                  Tem a certeza que deseja eliminar {selectedUser?.full_name || selectedUser?.email}?
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="py-4">
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                  <div className="flex gap-3">
+                    <div className="flex-shrink-0">
+                      <Trash2 className="h-5 w-5 text-destructive" />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-destructive">
+                        Esta ação não pode ser revertida!
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        O utilizador será permanentemente removido do sistema.
+                        Todas as reservas e dados associados permanecerão no sistema.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteDialogOpen(false)}
+                  disabled={submitting}
+                >
+                  Cancelar
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  onClick={handleDeleteUser} 
+                  disabled={submitting}
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      A eliminar...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Eliminar Utilizador
+                    </>
                   )}
                 </Button>
               </DialogFooter>
