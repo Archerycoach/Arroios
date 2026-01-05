@@ -9,72 +9,69 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn, AlertCircle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const { toast } = useToast();
 
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [isLoginLoading, setIsLoginLoading] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    e.stopPropagation();
+    setError("");
     
-    if (!loginEmail || !loginPassword) {
-      toast({
-        title: "Erro",
-        description: "Por favor preencha todos os campos",
-        variant: "destructive",
-      });
+    console.log("🔵 [LoginPage] Form submitted");
+    console.log("🔵 [LoginPage] Email:", email);
+    
+    if (!email || !password) {
+      setError("Por favor preencha todos os campos");
       return;
     }
     
-    setIsLoginLoading(true);
+    setIsLoading(true);
 
     try {
-      const { user, error } = await authService.signIn(loginEmail, loginPassword);
+      console.log("🔵 [LoginPage] Calling authService.signIn...");
+      const { user, error: authError } = await authService.signIn(email, password);
 
-      if (error) {
-        console.error("🔴 Login error:", error);
-        toast({
-          title: "Erro no Login",
-          description: error.message || "Credenciais inválidas",
-          variant: "destructive",
-        });
-        setIsLoginLoading(false);
+      if (authError || !user) {
+        console.error("🔴 [LoginPage] Login failed:", authError?.message);
+        setError(authError?.message || "Erro ao fazer login");
+        setIsLoading(false);
         return;
       }
 
-      if (user) {
-        console.log("🟢 Login successful, calling login() from AuthContext");
-        login(user);
-        
-        toast({
-          title: "Login bem-sucedido!",
-          description: `Bem-vindo de volta, ${user.full_name}!`,
-        });
-
-        if (user.role === "admin" || user.role === "staff") {
-          console.log("🔵 Redirecting to /admin");
-          router.push("/admin");
-        } else {
-          console.log("🔵 Redirecting to /my-bookings");
-          router.push("/my-bookings");
-        }
-      }
-    } catch (error: any) {
-      console.error("🔴 Login error:", error);
+      console.log("🟢 [LoginPage] Login successful!");
+      console.log("🟢 [LoginPage] User:", user.email, "Role:", user.role);
+      
+      // Update auth context
+      login(user);
+      
+      // Show success message
       toast({
-        title: "Erro no Login",
-        description: error.message || "Ocorreu um erro inesperado",
-        variant: "destructive",
+        title: "✅ Login bem-sucedido!",
+        description: `Bem-vindo, ${user.full_name}!`,
       });
+
+      // Redirect based on role
+      if (user.role === "admin" || user.role === "staff") {
+        console.log("🔵 [LoginPage] Redirecting to /admin");
+        await router.push("/admin");
+      } else {
+        console.log("🔵 [LoginPage] Redirecting to /my-bookings");
+        await router.push("/my-bookings");
+      }
+    } catch (err: any) {
+      console.error("🔴 [LoginPage] Unexpected error:", err);
+      setError(err.message || "Erro inesperado");
     } finally {
-      setIsLoginLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -89,7 +86,7 @@ export default function LoginPage() {
           <div className="max-w-md mx-auto">
             <div className="text-center mb-8">
               <h1 className="text-4xl font-bold text-gray-900 mb-2">
-                Bem-vindo
+                Bem-vindo de volta
               </h1>
               <p className="text-gray-600">
                 Entre na sua conta para continuar
@@ -97,24 +94,32 @@ export default function LoginPage() {
             </div>
 
             <div className="bg-white rounded-xl shadow-lg p-8">
-              <form onSubmit={handleLogin} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
-                    id="login-email"
+                    id="email"
                     type="email"
                     placeholder="seu@email.com"
-                    value={loginEmail}
-                    onChange={(e) => setLoginEmail(e.target.value)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     required
-                    disabled={isLoginLoading}
+                    disabled={isLoading}
                     className="w-full"
+                    autoComplete="email"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="login-password">Password</Label>
+                    <Label htmlFor="password">Password</Label>
                     <Link
                       href="/recuperar-senha"
                       className="text-sm text-blue-600 hover:underline"
@@ -123,43 +128,50 @@ export default function LoginPage() {
                     </Link>
                   </div>
                   <Input
-                    id="login-password"
+                    id="password"
                     type="password"
                     placeholder="••••••••"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     required
-                    disabled={isLoginLoading}
+                    disabled={isLoading}
                     className="w-full"
+                    autoComplete="current-password"
                   />
                 </div>
 
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={isLoginLoading}
+                  disabled={isLoading}
+                  size="lg"
                 >
-                  {isLoginLoading ? (
+                  {isLoading ? (
                     <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                       A entrar...
                     </>
                   ) : (
                     <>
-                      <LogIn className="mr-2 h-4 w-4" />
+                      <LogIn className="mr-2 h-5 w-5" />
                       Entrar
                     </>
                   )}
                 </Button>
               </form>
 
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg text-sm text-gray-700">
-                <p className="font-semibold mb-2">ℹ️ Informação:</p>
-                <ul className="space-y-1 list-disc list-inside text-xs">
-                  <li>Não tem conta? Contacte o administrador do sistema</li>
-                  <li>Apenas administradores podem criar novos utilizadores</li>
-                  <li>Se esqueceu a password, use o link "Esqueceu a password?"</li>
-                </ul>
+              <div className="mt-6 pt-6 border-t border-gray-200">
+                <div className="bg-blue-50 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold text-blue-900">
+                    💡 Primeiro acesso?
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    Se ainda não tem credenciais, contacte o administrador do sistema ou{" "}
+                    <Link href="/setup-admin" className="underline font-semibold">
+                      configure o primeiro admin aqui
+                    </Link>
+                  </p>
+                </div>
               </div>
             </div>
 

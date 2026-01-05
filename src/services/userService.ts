@@ -148,63 +148,74 @@ export const userService = {
         throw new Error("Email inválido");
       }
 
-      console.log("Creating user - Step 1: Starting auth signup");
+      console.log("[userService] Creating user - Step 1: Starting auth signup for", userData.email);
 
-      // Create auth user with retry logic
-      const result = await retryWithBackoff(async () => {
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: userData.email,
-          password: userData.password,
-          options: {
-            data: {
-              full_name: userData.full_name,
-              phone: userData.phone,
-            },
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            full_name: userData.full_name,
+            phone: userData.phone,
           },
-        });
+          emailRedirectTo: undefined,
+        },
+      });
 
-        if (authError) {
-          console.error("Auth signup error:", authError);
-          throw authError;
-        }
-        if (!authData.user) {
-          console.error("Auth signup succeeded but no user returned");
-          throw new Error("Falha ao criar utilizador");
-        }
+      if (authError) {
+        console.error("[userService] Auth signup error:", authError);
+        throw authError;
+      }
 
-        console.log("Creating user - Step 2: Auth signup successful, user ID:", authData.user.id);
-        return authData;
-      }, 3, 2000); // 3 retries, starting with 2 second delay
+      if (!authData.user) {
+        console.error("[userService] Auth signup succeeded but no user returned");
+        throw new Error("Falha ao criar utilizador no sistema de autenticação");
+      }
 
-      console.log("Creating user - Step 3: Inserting into users table");
+      console.log("[userService] Creating user - Step 2: Auth signup successful, user ID:", authData.user.id);
 
-      // Insert user record in users table (not update!)
+      // Wait a bit for auth to settle
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      console.log("[userService] Creating user - Step 3: Inserting into users table");
+
+      // Insert user record in users table
       const { data: user, error: insertError } = await supabase
         .from("users")
         .insert({ 
-          id: result.user.id,
+          id: authData.user.id,
           email: userData.email,
           full_name: userData.full_name,
           phone: userData.phone,
           role: userData.role,
         })
-        .select();
+        .select()
+        .single();
 
       if (insertError) {
-        console.error("Insert into users table error:", insertError);
+        console.error("[userService] Insert into users table error:", insertError);
+        
+        // If insert fails, try to clean up auth user
+        try {
+          await supabase.auth.admin.deleteUser(authData.user.id);
+          console.log("[userService] Cleaned up auth user after failed insert");
+        } catch (cleanupError) {
+          console.error("[userService] Failed to cleanup auth user:", cleanupError);
+        }
+        
         throw insertError;
       }
       
-      // Validate result
-      if (!user || user.length === 0) {
-        console.error("Insert succeeded but no user data returned");
+      if (!user) {
+        console.error("[userService] Insert succeeded but no user data returned");
         throw new Error("Falha ao criar registo do utilizador");
       }
 
-      console.log("Creating user - Step 4: Success! User created:", user[0].id);
-      return user[0];
-    } catch (error) {
-      console.error("Error creating user:", error);
+      console.log("[userService] Creating user - Step 4: Success! User created:", user.id);
+      return user;
+    } catch (error: any) {
+      console.error("[userService] Error creating user:", error);
       throw new Error(sanitizeError(error));
     }
   },

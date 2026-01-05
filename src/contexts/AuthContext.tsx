@@ -1,9 +1,6 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { authService, AuthUser } from "@/services/authService";
-import type { Database } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
-
-type UserRole = Database["public"]["Enums"]["user_role"];
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -22,100 +19,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    console.log("🔵 [AuthContext] Initializing...");
+    
     // Check initial session
-    const checkSession = async () => {
+    const initializeAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error("Error checking session:", error);
-          setUser(null);
-          setIsLoading(false);
-          return;
-        }
-
-        if (session?.user) {
-          // Fetch user profile to get role
-          const { data: profile } = await supabase
-            .from("users")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-
-          if (profile) {
-            setUser({
-              id: profile.id,
-              email: profile.email || "",
-              full_name: profile.full_name || "",
-              role: profile.role || "guest",
-              avatar_url: profile.avatar_url,
-              phone: profile.phone,
-              created_at: profile.created_at || undefined,
-            });
-          }
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser) {
+          console.log("🟢 [AuthContext] Initial user found:", currentUser.email);
+          setUser(currentUser);
         } else {
-          setUser(null);
+          console.log("⚪ [AuthContext] No initial user");
         }
       } catch (error) {
-        console.error("Session check error:", error);
-        setUser(null);
+        console.error("🔴 [AuthContext] Initialization error:", error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkSession();
+    initializeAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log("Auth state changed:", event);
+        console.log("🔵 [AuthContext] Auth state changed:", event);
         
         if (event === "SIGNED_OUT" || !session) {
+          console.log("⚪ [AuthContext] User signed out");
           setUser(null);
           return;
         }
 
-        if (session?.user && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED")) {
-          // Fetch updated profile
-          const { data: profile } = await supabase
-            .from("users")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
-
-          if (profile) {
-            setUser({
-              id: profile.id,
-              email: profile.email || "",
-              full_name: profile.full_name || "",
-              role: profile.role || "guest",
-              avatar_url: profile.avatar_url,
-              phone: profile.phone,
-              created_at: profile.created_at || undefined,
-            });
+        if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+          console.log("🟢 [AuthContext] User authenticated, fetching profile...");
+          const currentUser = await authService.getCurrentUser();
+          if (currentUser) {
+            console.log("🟢 [AuthContext] Profile loaded:", currentUser.email);
+            setUser(currentUser);
           }
         }
       }
     );
 
     return () => {
+      console.log("🔵 [AuthContext] Cleanup");
       subscription.unsubscribe();
     };
   }, []);
 
   const login = (userData: AuthUser) => {
+    console.log("🟢 [AuthContext] Login called for:", userData.email);
     setUser(userData);
   };
 
   const logout = async () => {
+    console.log("🔵 [AuthContext] Logout called");
     await authService.signOut();
     setUser(null);
   };
 
-  // Use useMemo to ensure isAdmin and isStaff are recalculated when user changes
-  const isAdmin = useMemo(() => user?.role === "admin", [user]);
-  const isStaff = useMemo(() => user?.role === "staff" || user?.role === "admin", [user]);
+  const isAdmin = user?.role === "admin";
+  const isStaff = user?.role === "staff" || user?.role === "admin";
+
+  console.log("🔵 [AuthContext] Current state:", {
+    hasUser: !!user,
+    email: user?.email,
+    role: user?.role,
+    isAdmin,
+    isStaff,
+    isLoading
+  });
 
   return (
     <AuthContext.Provider

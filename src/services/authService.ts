@@ -22,200 +22,168 @@ export interface AuthResponse {
   error: AuthError | null;
 }
 
-// Dynamic redirect URL helper
-const getRedirectURL = () => {
-  if (typeof window !== "undefined") {
-    return `${window.location.origin}/auth/callback`;
-  }
-  return "http://localhost:3000/auth/callback";
-};
-
-// Security: Sanitize error messages to prevent information disclosure
-const sanitizeError = (error: any): string => {
-  // Don't expose detailed database errors to users
-  if (error.message?.includes("duplicate key")) {
-    return "Este email já está registado";
-  }
-  if (error.message?.includes("invalid") || error.message?.includes("Invalid")) {
-    return "Credenciais inválidas";
-  }
-  return "Ocorreu um erro. Por favor, tente novamente.";
-};
-
 export const authService = {
-  // Sign up new user
-  async signUp(email: string, password: string, fullName: string): Promise<AuthResponse> {
-    try {
-      // Security: Validate input
-      if (!email || !password || !fullName) {
-        return { user: null, error: { message: "Todos os campos são obrigatórios" } };
-      }
-
-      if (password.length < 6) {
-        return { user: null, error: { message: "A password deve ter pelo menos 6 caracteres" } };
-      }
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            full_name: fullName,
-          },
-        },
-      });
-
-      if (error) {
-        return { user: null, error: { message: sanitizeError(error) } };
-      }
-
-      if (!data.user) {
-        return { user: null, error: { message: "Falha ao criar utilizador" } };
-      }
-
-      // Create user record with guest role by default
-      const { error: userError } = await supabase
-        .from("users")
-        .insert({
-          id: data.user.id,
-          email: data.user.email!,
-          full_name: fullName,
-          role: "guest" as UserRole,
-        });
-
-      if (userError) {
-        // Security: Don't log sensitive user data in production
-        if (process.env.NODE_ENV === "development") {
-          console.error("Error creating user record:", userError);
-        }
-      }
-
-      return {
-        user: {
-          id: data.user.id,
-          email: data.user.email || "",
-          full_name: fullName,
-          role: "guest" as UserRole,
-        },
-        error: null,
-      };
-    } catch (error: any) {
-      return { user: null, error: { message: sanitizeError(error) } };
-    }
-  },
-
-  // Sign in existing user
+  // Sign in - SIMPLIFIED AND RELIABLE
   async signIn(email: string, password: string): Promise<AuthResponse> {
     try {
-      // Security: Validate input
-      if (!email || !password) {
-        return { user: null, error: { message: "Email e password são obrigatórios" } };
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      console.log("🔵 [authService] Starting signIn for:", email);
+      
+      // Step 1: Authenticate with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password: password,
       });
 
-      if (error) {
-        return { user: null, error: { message: sanitizeError(error) } };
+      if (authError) {
+        console.error("🔴 [authService] Auth error:", authError);
+        return { 
+          user: null, 
+          error: { message: authError.message }
+        };
       }
 
-      if (!data.user) {
-        return { user: null, error: { message: "Falha na autenticação" } };
+      if (!authData.user) {
+        console.error("🔴 [authService] No user returned from auth");
+        return { 
+          user: null, 
+          error: { message: "Falha na autenticação" }
+        };
       }
 
-      // Get user record with role
-      const { data: userRecord, error: userError } = await supabase
+      console.log("🟢 [authService] Auth successful, user ID:", authData.user.id);
+
+      // Step 2: Get user profile from users table
+      const { data: userProfile, error: profileError } = await supabase
         .from("users")
-        .select("full_name, role")
-        .eq("id", data.user.id)
-        .single();
+        .select("*")
+        .eq("id", authData.user.id)
+        .maybeSingle();
 
-      if (userError) {
-        if (process.env.NODE_ENV === "development") {
-          console.error("Error fetching user record:", userError);
-        }
+      if (profileError) {
+        console.error("🔴 [authService] Profile fetch error:", profileError);
       }
+
+      if (!userProfile) {
+        console.warn("⚠️ [authService] No profile found, creating one...");
+        
+        // Create profile if it doesn't exist
+        const { data: newProfile, error: createError } = await supabase
+          .from("users")
+          .insert({
+            id: authData.user.id,
+            email: authData.user.email!,
+            full_name: authData.user.user_metadata?.full_name || "Utilizador",
+            role: "guest" as UserRole,
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error("🔴 [authService] Failed to create profile:", createError);
+          return {
+            user: {
+              id: authData.user.id,
+              email: authData.user.email || "",
+              full_name: "Utilizador",
+              role: "guest" as UserRole,
+            },
+            error: null,
+          };
+        }
+
+        console.log("🟢 [authService] Profile created:", newProfile);
+        
+        return {
+          user: {
+            id: newProfile.id,
+            email: newProfile.email,
+            full_name: newProfile.full_name || "Utilizador",
+            role: newProfile.role as UserRole,
+            avatar_url: newProfile.avatar_url,
+            phone: newProfile.phone,
+            created_at: newProfile.created_at,
+          },
+          error: null,
+        };
+      }
+
+      console.log("🟢 [authService] Profile found:", userProfile);
 
       return {
         user: {
-          id: data.user.id,
-          email: data.user.email || "",
-          full_name: userRecord?.full_name || "",
-          role: (userRecord?.role as UserRole) || "guest",
+          id: userProfile.id,
+          email: userProfile.email,
+          full_name: userProfile.full_name || "Utilizador",
+          role: userProfile.role as UserRole,
+          avatar_url: userProfile.avatar_url,
+          phone: userProfile.phone,
+          created_at: userProfile.created_at,
         },
         error: null,
       };
     } catch (error: any) {
-      return { user: null, error: { message: sanitizeError(error) } };
+      console.error("🔴 [authService] Unexpected error:", error);
+      return { 
+        user: null, 
+        error: { message: error.message || "Erro inesperado" }
+      };
     }
   },
 
   // Sign out
   async signOut(): Promise<void> {
+    console.log("🔵 [authService] Signing out...");
     const { error } = await supabase.auth.signOut();
     if (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Error signing out:", error);
-      }
+      console.error("🔴 [authService] Sign out error:", error);
       throw error;
     }
+    console.log("🟢 [authService] Signed out successfully");
   },
 
   // Get current user
   async getCurrentUser(): Promise<AuthUser | null> {
     try {
+      console.log("🔵 [authService] Getting current user...");
+      
       const { data: { user }, error } = await supabase.auth.getUser();
 
       if (error || !user) {
+        console.log("⚪ [authService] No current user");
         return null;
       }
 
-      // Get user record with role
-      const { data: userRecord, error: userError } = await supabase
+      const { data: userProfile } = await supabase
         .from("users")
-        .select("full_name, role")
+        .select("*")
         .eq("id", user.id)
-        .single();
+        .maybeSingle();
 
-      if (userError) {
-        if (process.env.NODE_ENV === "development") {
-          console.error("Error fetching user record:", userError);
-        }
+      if (!userProfile) {
+        console.warn("⚠️ [authService] User authenticated but no profile found");
+        return {
+          id: user.id,
+          email: user.email || "",
+          full_name: "Utilizador",
+          role: "guest" as UserRole,
+        };
       }
+
+      console.log("🟢 [authService] Current user:", userProfile.email);
 
       return {
-        id: user.id,
-        email: user.email || "",
-        full_name: userRecord?.full_name || "",
-        role: (userRecord?.role as UserRole) || "guest",
+        id: userProfile.id,
+        email: userProfile.email,
+        full_name: userProfile.full_name || "Utilizador",
+        role: userProfile.role as UserRole,
+        avatar_url: userProfile.avatar_url,
+        phone: userProfile.phone,
+        created_at: userProfile.created_at,
       };
     } catch (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Error getting current user:", error);
-      }
+      console.error("🔴 [authService] Error getting current user:", error);
       return null;
     }
-  },
-
-  // OAuth sign in (Google, Facebook, etc.)
-  async signInWithOAuth(provider: "google" | "facebook" | "github") {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: getRedirectURL(),
-      },
-    });
-
-    if (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("OAuth sign in error:", error);
-      }
-      return { error: { message: sanitizeError(error) } };
-    }
-
-    return { data, error: null };
   },
 
   // Check if user is authenticated
@@ -224,9 +192,18 @@ export const authService = {
     return !!session;
   },
 
+  // Get session
+  async getSession() {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) {
+      console.error("🔴 [authService] Error getting session:", error);
+      return null;
+    }
+    return session;
+  },
+
   // Request password reset
   async requestPasswordReset(email: string) {
-    // Security: Validate email format
     if (!email || !email.includes("@")) {
       return { error: { message: "Email inválido" } };
     }
@@ -240,16 +217,14 @@ export const authService = {
     });
 
     if (error) {
-      // Security: Don't reveal if email exists or not
       return { error: { message: "Se o email existir, receberá instruções para recuperação" } };
     }
 
     return { error: null };
   },
 
-  // Reset password (update user password)
+  // Reset password
   async resetPassword(password: string) {
-    // Security: Validate password strength
     if (!password || password.length < 6) {
       return { error: { message: "A password deve ter pelo menos 6 caracteres" } };
     }
@@ -259,21 +234,9 @@ export const authService = {
     });
 
     if (error) {
-      return { error: { message: sanitizeError(error) } };
+      return { error: { message: error.message } };
     }
 
     return { data, error: null };
-  },
-
-  // Get session
-  async getSession() {
-    const { data: { session }, error } = await supabase.auth.getSession();
-    if (error) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("Error getting session:", error);
-      }
-      return null;
-    }
-    return session;
   },
 };
