@@ -31,6 +31,7 @@ export default function UtilizadoresPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState<string>("");
   const [showPassword, setShowPassword] = useState(false);
 
   const [createForm, setCreateForm] = useState({
@@ -100,11 +101,21 @@ export default function UtilizadoresPage() {
       return;
     }
 
+    // Prevent double submissions
+    if (submitting) {
+      return;
+    }
+
     try {
       setSubmitting(true);
+      setSubmitMessage("A criar utilizador...");
+      
       await userService.createUser(createForm);
+      
+      setSubmitMessage("Utilizador criado! A atualizar lista...");
       await loadUsers();
       await loadStats();
+      
       setCreateDialogOpen(false);
       setCreateForm({
         email: "",
@@ -113,10 +124,18 @@ export default function UtilizadoresPage() {
         phone: "",
         role: "guest",
       });
+      setSubmitMessage("");
       alert("Utilizador criado com sucesso!");
     } catch (error: any) {
       console.error("Error creating user:", error);
-      alert(error.message || "Erro ao criar utilizador");
+      setSubmitMessage("");
+      
+      // Special handling for rate limit errors
+      if (error.message?.includes("Limite de requisições") || error.message?.includes("Demasiadas tentativas")) {
+        alert("⚠️ " + error.message + "\n\nSugestão: Aguarde 60 segundos antes de criar outro utilizador.");
+      } else {
+        alert(error.message || "Erro ao criar utilizador");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -479,7 +498,7 @@ export default function UtilizadoresPage() {
                   {submitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      A criar...
+                      {submitMessage || "A criar..."}
                     </>
                   ) : (
                     <>

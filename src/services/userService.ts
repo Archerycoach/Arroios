@@ -12,7 +12,62 @@ const sanitizeError = (error: any): string => {
   if (error.message?.includes("permission denied") || error.message?.includes("insufficient_privilege")) {
     return "Sem permissões suficientes para esta operação";
   }
+  if (error.message?.includes("For security purposes")) {
+    return "Limite de requisições atingido. Por favor aguarde alguns segundos e tente novamente.";
+  }
+  if (error.status === 429 || error.message?.includes("rate limit")) {
+    return "Demasiadas tentativas. Por favor aguarde 60 segundos antes de tentar novamente.";
+  }
   return "Ocorreu um erro. Por favor, tente novamente.";
+};
+
+// Retry helper with exponential backoff
+const retryWithBackoff = async <T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<T> => {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Don't retry on certain errors
+      if (
+        error.message?.includes("duplicate key") ||
+        error.message?.includes("invalid") ||
+        error.message?.includes("permission denied")
+      ) {
+        throw error;
+      }
+      
+      // Check if it's a rate limit error
+      const isRateLimit = 
+        error.status === 429 || 
+        error.message?.includes("rate limit") ||
+        error.message?.includes("For security purposes");
+      
+      if (isRateLimit && attempt < maxRetries - 1) {
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = initialDelay * Math.pow(2, attempt);
+        if (process.env.NODE_ENV === "development") {
+          console.log(`Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // If it's the last retry or not a rate limit error, throw
+      if (attempt === maxRetries - 1) {
+        throw error;
+      }
+    }
+  }
+  
+  throw lastError;
 };
 
 export const userService = {
@@ -72,35 +127,45 @@ export const userService = {
         throw new Error("Email inválido");
       }
 
-      // Create auth user
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: userData.email,
-        password: userData.password,
-        options: {
-          data: {
-            full_name: userData.full_name,
-            phone: userData.phone,
+      // Create auth user with retry logic
+      const result = await retryWithBackoff(async () => {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: userData.email,
+          password: userData.password,
+          options: {
+            data: {
+              full_name: userData.full_name,
+              phone: userData.phone,
+            },
           },
-        },
-      });
+        });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error("Falha ao criar utilizador");
+        if (authError) throw authError;
+        if (!authData.user) throw new Error("Falha ao criar utilizador");
 
-      // Update user role in users table
-      const { data: user, error: updateError } = await supabase
+        return authData;
+      }, 3, 2000); // 3 retries, starting with 2 second delay
+
+      // Insert user record in users table (not update!)
+      const { data: user, error: insertError } = await supabase
         .from("users")
-        .update({ 
-          role: userData.role,
+        .insert({ 
+          id: result.user.id,
+          email: userData.email,
           full_name: userData.full_name,
           phone: userData.phone,
+          role: userData.role,
         })
-        .eq("id", authData.user.id)
-        .select()
-        .single();
+        .select();
 
-      if (updateError) throw updateError;
-      return user;
+      if (insertError) throw insertError;
+      
+      // Validate result
+      if (!user || user.length === 0) {
+        throw new Error("Falha ao criar registo do utilizador");
+      }
+
+      return user[0];
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error creating user:", error);
@@ -153,11 +218,20 @@ export const userService = {
         .from("users")
         .update({ role, updated_at: new Date().toISOString() })
         .eq("id", userId)
-        .select()
-        .single();
+        .select();
 
       if (error) throw error;
-      return data;
+      
+      // Validate result - FIXED: No more .single()
+      if (!data || data.length === 0) {
+        throw new Error("Utilizador não encontrado");
+      }
+      
+      if (data.length > 1) {
+        throw new Error("Múltiplos utilizadores encontrados - erro de integridade");
+      }
+
+      return data[0];
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error updating user role:", error);
@@ -201,11 +275,20 @@ export const userService = {
         .from("users")
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq("id", userId)
-        .select()
-        .single();
+        .select();
 
       if (error) throw error;
-      return data;
+      
+      // Validate result - FIXED: No more .single()
+      if (!data || data.length === 0) {
+        throw new Error("Utilizador não encontrado");
+      }
+      
+      if (data.length > 1) {
+        throw new Error("Múltiplos utilizadores encontrados - erro de integridade");
+      }
+
+      return data[0];
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error updating user:", error);
@@ -240,11 +323,20 @@ export const userService = {
         .from("users")
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq("id", userId)
-        .select()
-        .single();
+        .select();
 
       if (error) throw error;
-      return data;
+      
+      // Validate result - FIXED: No more .single()
+      if (!data || data.length === 0) {
+        throw new Error("Utilizador não encontrado");
+      }
+      
+      if (data.length > 1) {
+        throw new Error("Múltiplos utilizadores encontrados - erro de integridade");
+      }
+
+      return data[0];
     } catch (error) {
       if (process.env.NODE_ENV === "development") {
         console.error("Error updating user profile:", error);
