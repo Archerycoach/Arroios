@@ -7,16 +7,18 @@ type BookingPaymentInsert = Database["public"]["Tables"]["booking_payments"]["In
 export const paymentService = {
   /**
    * Generate monthly payments for a booking
-   * Creates monthly payments + security deposit
+   * Creates monthly payments + optional security deposit
    */
   async generatePaymentsForBooking(
     bookingId: string,
     monthlyAmount: number,
     numberOfMonths: number,
-    startDate: string
+    startDate: string,
+    includeDeposit: boolean = true,
+    depositAmount?: number
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("🔵 Generating payments:", { bookingId, monthlyAmount, numberOfMonths, startDate });
+      console.log("🔵 Generating payments:", { bookingId, monthlyAmount, numberOfMonths, startDate, includeDeposit });
       
       const payments: BookingPaymentInsert[] = [];
       const start = new Date(startDate);
@@ -35,14 +37,16 @@ export const paymentService = {
         });
       }
 
-      // Add security deposit (due on first day)
-      payments.push({
-        booking_id: bookingId,
-        payment_type: "deposit",
-        amount: monthlyAmount, // Same as monthly amount
-        due_date: startDate,
-        status: "pending",
-      });
+      // Add security deposit (due on first day) - only if includeDeposit is true
+      if (includeDeposit) {
+        payments.push({
+          booking_id: bookingId,
+          payment_type: "deposit",
+          amount: depositAmount || monthlyAmount, // Same as monthly amount
+          due_date: startDate,
+          status: "pending",
+        });
+      }
 
       console.log("🔵 Payments to insert:", payments);
 

@@ -31,6 +31,8 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
   const [loading, setLoading] = useState(false);
   const [showNewGuestForm, setShowNewGuestForm] = useState(false);
   const [dateConflictError, setDateConflictError] = useState<string>("");
+  const [includeDeposit, setIncludeDeposit] = useState(true);
+  const [depositAmount, setDepositAmount] = useState("");
   
   const [formData, setFormData] = useState({
     guest_id: "",
@@ -84,19 +86,41 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       let calculatedPrice = 0;
       
       if (formData.pricing_mode === "monthly") {
-        // Count only complete months
-        const mesesCompletos = Math.floor(days / 30);
-        calculatedPrice = mesesCompletos * selectedRoom.monthly_price;
+        if (days >= 30) {
+          // 30+ dias: calcular meses completos
+          const mesesCompletos = Math.floor(days / 30);
+          calculatedPrice = mesesCompletos * selectedRoom.monthly_price;
+        } else if (days >= 15) {
+          // 15-29 dias: cobrar 1 mês completo
+          calculatedPrice = selectedRoom.monthly_price;
+        } else {
+          // 1-14 dias: cobrar 1 quinzena
+          calculatedPrice = selectedRoom.monthly_price / 2;
+        }
       } else if (formData.pricing_mode === "biweekly") {
-        // Count only complete biweekly periods
         const biweeklyPrice = selectedRoom.monthly_price / 2;
-        const quinzenasCompletas = Math.floor(days / 15);
-        calculatedPrice = quinzenasCompletas * biweeklyPrice;
+        if (days >= 15) {
+          const quinzenasCompletas = Math.floor(days / 15);
+          calculatedPrice = quinzenasCompletas * biweeklyPrice;
+        } else {
+          // Menos de 15 dias: cobrar 1 quinzena
+          calculatedPrice = biweeklyPrice;
+        }
       }
 
       setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
     }
   }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.pricing_mode, rooms]);
+
+  // Initialize deposit amount when room is selected
+  useEffect(() => {
+    if (formData.room_id) {
+      const selectedRoom = rooms.find(r => r.id === formData.room_id);
+      if (selectedRoom) {
+        setDepositAmount(selectedRoom.monthly_price.toFixed(2));
+      }
+    }
+  }, [formData.room_id, rooms]);
 
   const loadData = async () => {
     try {
@@ -256,14 +280,12 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
 
       const totalAmount = parseFloat(formData.custom_price);
       
-      // Determine payment_type based on selected pricing mode
       let paymentType: PaymentType;
       if (formData.pricing_mode === "monthly") {
         paymentType = "monthly";
       } else if (formData.pricing_mode === "biweekly") {
         paymentType = "biweekly";
       } else {
-        // For manual, determine based on duration
         paymentType = getPaymentType(nights);
       }
 
@@ -294,21 +316,19 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
           description: "A reserva foi criada com sucesso.",
         });
 
-        // Generate monthly payments + security deposit
         if (createdBooking.id) {
-          // Calculate number of months for payment generation
-          // If less than 1 month, treat as 1 month (single payment)
+          const days = differenceInDays(checkOut, checkIn);
           const calculatedMonths = Math.floor(days / 30);
           const numberOfInstallments = calculatedMonths > 0 ? calculatedMonths : 1;
-          
-          // Monthly amount is total divided by number of installments
           const monthlyAmount = totalAmount / numberOfInstallments;
 
           await paymentService.generatePaymentsForBooking(
             createdBooking.id,
             monthlyAmount,
             numberOfInstallments,
-            formData.check_in_date
+            formData.check_in_date,
+            includeDeposit,
+            depositAmount ? parseFloat(depositAmount) : 0
           );
         }
 
@@ -342,6 +362,8 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       special_requests: "",
     });
     setDateConflictError("");
+    setIncludeDeposit(true);
+    setDepositAmount("");
   };
 
   const selectedRoom = rooms.find(r => r.id === formData.room_id);
@@ -510,7 +532,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
             </Alert>
           )}
 
-          {/* Price Section - Always visible when room is selected */}
+          {/* Price Section */}
           {selectedRoom && (
             <div className="rounded-lg border bg-muted/50 p-4 space-y-4">
               {/* Pricing Mode Selection */}
@@ -570,32 +592,60 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                 </div>
               </div>
 
-              {/* Price Breakdown (only for monthly/biweekly with dates) */}
+              {/* Price Breakdown */}
               {formData.pricing_mode !== "manual" && days > 0 && (
                 <div className="pt-3 border-t space-y-2">
                   <div className="text-sm text-muted-foreground">
                     Duração: {days} dia{days !== 1 ? 's' : ''}
                   </div>
                   {formData.pricing_mode === "monthly" && (() => {
-                    const mesesCompletos = Math.floor(days / 30);
-                    return (
-                      <div className="text-sm">
-                        • {days} dias ÷ 30 = {mesesCompletos} meses completos
-                        <br />
-                        • {mesesCompletos} meses × €{selectedRoom.monthly_price.toFixed(2)} = €{(mesesCompletos * selectedRoom.monthly_price).toFixed(2)}
-                      </div>
-                    );
+                    if (days >= 30) {
+                      const mesesCompletos = Math.floor(days / 30);
+                      return (
+                        <div className="text-sm">
+                          • {days} dias ÷ 30 = {mesesCompletos} meses completos
+                          <br />
+                          • {mesesCompletos} meses × €{selectedRoom.monthly_price.toFixed(2)} = €{(mesesCompletos * selectedRoom.monthly_price).toFixed(2)}
+                        </div>
+                      );
+                    } else if (days >= 15) {
+                      return (
+                        <div className="text-sm">
+                          • {days} dias (entre 15-29 dias)
+                          <br />
+                          • Cobrança: 1 mês completo = €{selectedRoom.monthly_price.toFixed(2)}
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="text-sm">
+                          • {days} dias (até 14 dias)
+                          <br />
+                          • Cobrança: 1 quinzena = €{(selectedRoom.monthly_price / 2).toFixed(2)}
+                        </div>
+                      );
+                    }
                   })()}
                   {formData.pricing_mode === "biweekly" && (() => {
-                    const quinzenasCompletas = Math.floor(days / 15);
                     const biweeklyPrice = selectedRoom.monthly_price / 2;
-                    return (
-                      <div className="text-sm">
-                        • {days} dias ÷ 15 = {quinzenasCompletas} quinzenas completas
-                        <br />
-                        • {quinzenasCompletas} quinzenas × €{biweeklyPrice.toFixed(2)} = €{(quinzenasCompletas * biweeklyPrice).toFixed(2)}
-                      </div>
-                    );
+                    if (days >= 15) {
+                      const quinzenasCompletas = Math.floor(days / 15);
+                      return (
+                        <div className="text-sm">
+                          • {days} dias ÷ 15 = {quinzenasCompletas} quinzenas completas
+                          <br />
+                          • {quinzenasCompletas} quinzenas × €{biweeklyPrice.toFixed(2)} = €{(quinzenasCompletas * biweeklyPrice).toFixed(2)}
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="text-sm">
+                          • {days} dias (menos de 15 dias)
+                          <br />
+                          • Cobrança: 1 quinzena = €{biweeklyPrice.toFixed(2)}
+                        </div>
+                      );
+                    }
                   })()}
                 </div>
               )}
@@ -630,12 +680,22 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                 let expectedValue = 0;
                 
                 if (formData.pricing_mode === "monthly") {
-                  const mesesCompletos = Math.floor(days / 30);
-                  expectedValue = mesesCompletos * selectedRoom.monthly_price;
+                  if (days >= 30) {
+                    const mesesCompletos = Math.floor(days / 30);
+                    expectedValue = mesesCompletos * selectedRoom.monthly_price;
+                  } else if (days >= 15) {
+                    expectedValue = selectedRoom.monthly_price;
+                  } else {
+                    expectedValue = selectedRoom.monthly_price / 2;
+                  }
                 } else if (formData.pricing_mode === "biweekly") {
                   const biweeklyPrice = selectedRoom.monthly_price / 2;
-                  const quinzenasCompletas = Math.floor(days / 15);
-                  expectedValue = quinzenasCompletas * biweeklyPrice;
+                  if (days >= 15) {
+                    const quinzenasCompletas = Math.floor(days / 15);
+                    expectedValue = quinzenasCompletas * biweeklyPrice;
+                  } else {
+                    expectedValue = biweeklyPrice;
+                  }
                 }
                 
                 const difference = currentValue - expectedValue;
@@ -652,6 +712,67 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                 }
                 return null;
               })()}
+            </div>
+          )}
+
+          {/* Security Deposit Section */}
+          {selectedRoom && (
+            <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+              <div className="flex items-start space-x-3">
+                <input
+                  type="checkbox"
+                  id="include_deposit"
+                  checked={includeDeposit}
+                  onChange={(e) => setIncludeDeposit(e.target.checked)}
+                  className="w-4 h-4 mt-1 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <Label htmlFor="include_deposit" className="cursor-pointer font-medium">
+                    Incluir caução de segurança
+                  </Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    A caução será cobrada no dia do check-in
+                  </p>
+                </div>
+              </div>
+
+              {includeDeposit && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="deposit_amount">Valor da Caução</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                      <Input
+                        id="deposit_amount"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={depositAmount}
+                        onChange={(e) => setDepositAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="pl-7"
+                      />
+                    </div>
+                  </div>
+
+                  {depositAmount && parseFloat(depositAmount) > 0 && formData.custom_price && parseFloat(formData.custom_price) > 0 && (
+                    <div className="pt-2 border-t space-y-1">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Valor da reserva:</span>
+                        <span className="font-medium">€{parseFloat(formData.custom_price || "0").toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Caução de segurança:</span>
+                        <span className="font-medium">€{parseFloat(depositAmount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm font-semibold pt-2 border-t">
+                        <span>Total a pagar:</span>
+                        <span>€{(parseFloat(formData.custom_price || "0") + parseFloat(depositAmount)).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 
