@@ -1,4 +1,35 @@
 import * as XLSX from "xlsx";
+import { format } from "date-fns";
+import { pt } from "date-fns/locale";
+import { PaymentWithDetails } from "@/types";
+
+export interface PaymentFilters {
+  startDate?: Date;
+  endDate?: Date;
+  status?: string;
+  paymentType?: string;
+  room_id?: string;
+  bank_account_id?: string;
+  month?: string;
+  room?: string;
+}
+
+export const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  monthly: "Mensalidade",
+  biweekly: "Quinzenal",
+  deposit: "Caução",
+  deposit_refund: "Devolução Caução",
+  daily: "Diária",
+  other: "Outro",
+};
+
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  pending: "Pendente",
+  paid: "Pago",
+  overdue: "Atrasado",
+  cancelled: "Cancelado",
+  refunded: "Reembolsado",
+};
 
 /**
  * Utility functions for exporting data to Excel
@@ -182,3 +213,116 @@ export const expenseExportColumns: ExportColumn[] = [
   },
   { header: "Notas", key: "notes" }
 ];
+
+export function exportPaymentsToExcel(
+  payments: PaymentWithDetails[],
+  filters: PaymentFilters,
+  customFilename?: string
+) {
+  const workbook = XLSX.utils.book_new();
+
+  const data = payments.map((payment) => ({
+    "Nº Reserva": payment.bookings?.booking_number || "N/A",
+    "Quarto": payment.bookings?.rooms?.room_number 
+      ? `Quarto ${payment.bookings.rooms.room_number}` 
+      : payment.bookings?.rooms?.name || "N/A",
+    "Conta Bancária": payment.bank_accounts?.name || "Não associada",
+    "Cliente": payment.bookings?.guests?.full_name || "N/A",
+    "Tipo": PAYMENT_TYPE_LABELS[payment.payment_type] || payment.payment_type,
+    "Valor": `€${payment.amount.toFixed(2)}`,
+    "Data de Vencimento": payment.due_date 
+      ? format(new Date(payment.due_date), "dd/MM/yyyy", { locale: pt })
+      : "N/A",
+    "Estado": PAYMENT_STATUS_LABELS[payment.status] || payment.status,
+    "Data de Pagamento": payment.payment_date
+      ? format(new Date(payment.payment_date), "dd/MM/yyyy", { locale: pt })
+      : "Não pago",
+    "Método de Pagamento": payment.payment_method || "N/A",
+    "Notas": payment.notes || "",
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+
+  // Set column widths
+  worksheet["!cols"] = [
+    { wch: 15 }, // Nº Reserva
+    { wch: 15 }, // Quarto
+    { wch: 20 }, // Conta Bancária
+    { wch: 25 }, // Cliente
+    { wch: 12 }, // Tipo
+    { wch: 12 }, // Valor
+    { wch: 18 }, // Data de Vencimento
+    { wch: 12 }, // Estado
+    { wch: 18 }, // Data de Pagamento
+    { wch: 18 }, // Método de Pagamento
+    { wch: 30 }, // Notas
+  ];
+
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Pagamentos");
+
+  // Add summary sheet
+  const summary = createSummarySheet(payments);
+  const summaryWorksheet = XLSX.utils.json_to_sheet(summary);
+  XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "Resumo");
+
+  // Generate filename
+  if (customFilename) {
+    const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm");
+    XLSX.writeFile(workbook, `${customFilename}_${timestamp}.xlsx`);
+    return;
+  }
+
+  const timestamp = format(new Date(), "yyyy-MM-dd_HH-mm");
+  let filename = `pagamentos_${timestamp}`;
+
+  if (filters.startDate && filters.endDate) {
+    const start = format(new Date(filters.startDate), "dd-MM-yyyy");
+    const end = format(new Date(filters.endDate), "dd-MM-yyyy");
+    filename = `pagamentos_${start}_a_${end}`;
+  }
+
+  XLSX.writeFile(workbook, `${filename}.xlsx`);
+}
+
+function createSummarySheet(payments: PaymentWithDetails[]) {
+  const totalAmount = payments.reduce((sum, p) => sum + p.amount, 0);
+  const totalPaid = payments
+    .filter((p) => p.status === "paid")
+    .reduce((sum, p) => sum + p.amount, 0);
+  const totalPending = payments
+    .filter((p) => p.status === "pending")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  const byType = payments.reduce((acc, p) => {
+    const type = PAYMENT_TYPE_LABELS[p.payment_type] || p.payment_type;
+    acc[type] = (acc[type] || 0) + p.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const byAccount = payments.reduce((acc, p) => {
+    const account = p.bank_accounts?.name || "Não associada";
+    acc[account] = (acc[account] || 0) + p.amount;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const summaryData = [
+    { "Categoria": "Totais Gerais", "Valor": "" },
+    { "Categoria": "Total Previsto", "Valor": `€${totalAmount.toFixed(2)}` },
+    { "Categoria": "Total Pago", "Valor": `€${totalPaid.toFixed(2)}` },
+    { "Categoria": "Total Pendente", "Valor": `€${totalPending.toFixed(2)}` },
+    { "Categoria": "", "Valor": "" },
+    { "Categoria": "Por Tipo", "Valor": "" },
+    ...Object.entries(byType).map(([type, amount]) => ({
+      "Categoria": type,
+      "Valor": `€${amount.toFixed(2)}`,
+    })),
+    { "Categoria": "", "Valor": "" },
+    { "Categoria": "Por Conta Bancária", "Valor": "" },
+    ...Object.entries(byAccount).map(([account, amount]) => ({
+      "Categoria": account,
+      "Valor": `€${amount.toFixed(2)}`,
+    })),
+  ];
+
+  return summaryData;
+}

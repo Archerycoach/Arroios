@@ -10,32 +10,10 @@ import { Download, Filter, Calendar, Home, DollarSign } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { paymentService } from "@/services/paymentService";
 import { roomService } from "@/services/roomService";
-import * as XLSX from "xlsx";
+import { exportPaymentsToExcel } from "@/lib/exportUtils";
+import type { PaymentWithDetails } from "@/types";
 
 type PaymentStatus = "all" | "pending" | "paid" | "overdue";
-
-interface PaymentWithDetails {
-  id: string;
-  booking_id: string;
-  payment_type: "monthly" | "deposit" | "deposit_refund";
-  amount: number;
-  due_date: string;
-  paid_date: string | null;
-  status: "pending" | "paid" | "refunded";
-  payment_method: string | null;
-  notes: string | null;
-  booking: {
-    room: {
-      number: string;
-      name: string;
-    };
-    guest: {
-      full_name: string;
-      tax_id: string | null;
-      email: string;
-    };
-  };
-}
 
 export default function ExportarPagamentosPage() {
   const { toast } = useToast();
@@ -80,10 +58,9 @@ export default function ExportarPagamentosPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load all payments with details
-      const allPayments = await paymentService.getAllPaymentsWithDetails();
-      // Cast to correct type since DB returns string for enum
-      setPayments(allPayments as unknown as PaymentWithDetails[]);
+      // Load all payments with details including bank accounts
+      const allPayments = await paymentService.getAll();
+      setPayments(allPayments);
 
       // Load rooms for filter
       const roomsData = await roomService.getAll();
@@ -105,14 +82,17 @@ export default function ExportarPagamentosPage() {
     // Filter by month
     if (selectedMonth !== "all") {
       filtered = filtered.filter((p) => {
-        const paymentMonth = p.due_date.substring(0, 7); // YYYY-MM
+        const paymentMonth = p.due_date?.substring(0, 7); // YYYY-MM
         return paymentMonth === selectedMonth;
       });
     }
 
     // Filter by room
     if (selectedRoom !== "all") {
-      filtered = filtered.filter((p) => p.booking.room.number === selectedRoom);
+      filtered = filtered.filter((p) => {
+        const roomNumber = p.bookings?.rooms?.room_number;
+        return roomNumber === selectedRoom;
+      });
     }
 
     // Filter by status
@@ -121,7 +101,7 @@ export default function ExportarPagamentosPage() {
         if (selectedStatus === "paid") return p.status === "paid";
         if (selectedStatus === "pending") return p.status === "pending";
         if (selectedStatus === "overdue") {
-          return p.status === "pending" && new Date(p.due_date) < new Date();
+          return p.status === "pending" && p.due_date && new Date(p.due_date) < new Date();
         }
         return true;
       });
@@ -156,34 +136,6 @@ export default function ExportarPagamentosPage() {
       return;
     }
 
-    // Prepare data for Excel
-    const excelData = filteredPayments.map((payment) => ({
-      Quarto: payment.booking.room.number,
-      "Nome do Quarto": payment.booking.room.name,
-      Hóspede: payment.booking.guest.full_name,
-      NIF: payment.booking.guest.tax_id || "N/A",
-      Email: payment.booking.guest.email,
-      Tipo: getPaymentTypeLabel(payment.payment_type),
-      Valor: `€${payment.amount.toFixed(2)}`,
-      Vencimento: new Date(payment.due_date).toLocaleDateString("pt-PT"),
-      Status: getStatusLabel(payment),
-      "Data Pagamento": payment.paid_date
-        ? new Date(payment.paid_date).toLocaleDateString("pt-PT")
-        : "-",
-      Método: payment.payment_method || "-",
-      Notas: payment.notes || "-",
-    }));
-
-    // Create workbook
-    const ws = XLSX.utils.json_to_sheet(excelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Pagamentos");
-
-    // Auto-size columns
-    const maxWidth = 20;
-    const wscols = Object.keys(excelData[0] || {}).map(() => ({ wch: maxWidth }));
-    ws["!cols"] = wscols;
-
     // Generate filename
     let filename = "pagamentos";
     if (selectedMonth !== "all") {
@@ -193,10 +145,13 @@ export default function ExportarPagamentosPage() {
     if (selectedRoom !== "all") {
       filename += `_quarto_${selectedRoom}`;
     }
-    filename += `.xlsx`;
 
-    // Download
-    XLSX.writeFile(wb, filename);
+    // Export using the new utility function
+    exportPaymentsToExcel(filteredPayments, {
+      month: selectedMonth !== "all" ? selectedMonth : undefined,
+      room: selectedRoom !== "all" ? selectedRoom : undefined,
+      status: selectedStatus !== "all" ? selectedStatus : undefined,
+    }, filename);
 
     toast({
       title: "Sucesso",
@@ -212,6 +167,10 @@ export default function ExportarPagamentosPage() {
         return "Caução";
       case "deposit_refund":
         return "Devolução Caução";
+      case "biweekly":
+        return "Quinzenal";
+      case "daily":
+        return "Diário";
       default:
         return type;
     }
@@ -221,7 +180,7 @@ export default function ExportarPagamentosPage() {
     if (payment.status === "paid") return "Pago";
     if (payment.status === "refunded") return "Devolvido";
     if (payment.status === "pending") {
-      const isOverdue = new Date(payment.due_date) < new Date();
+      const isOverdue = payment.due_date && new Date(payment.due_date) < new Date();
       return isOverdue ? "Atrasado" : "Pendente";
     }
     return payment.status;
@@ -235,7 +194,7 @@ export default function ExportarPagamentosPage() {
       return <Badge className="bg-blue-500">🔄 Devolvido</Badge>;
     }
     if (payment.status === "pending") {
-      const isOverdue = new Date(payment.due_date) < new Date();
+      const isOverdue = payment.due_date && new Date(payment.due_date) < new Date();
       return isOverdue ? (
         <Badge className="bg-red-500">🔴 Atrasado</Badge>
       ) : (
@@ -252,7 +211,7 @@ export default function ExportarPagamentosPage() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold">📊 Exportar Pagamentos</h1>
             <p className="text-muted-foreground mt-2">
-              Filtre e exporte pagamentos para Excel com informações detalhadas
+              Filtre e exporte pagamentos para Excel com informações detalhadas incluindo contas bancárias
             </p>
           </div>
 
@@ -300,8 +259,8 @@ export default function ExportarPagamentosPage() {
                     <SelectContent>
                       <SelectItem value="all">Todos os Quartos</SelectItem>
                       {rooms.map((room) => (
-                        <SelectItem key={room.id} value={room.number}>
-                          {room.number} - {room.name}
+                        <SelectItem key={room.id} value={room.room_number}>
+                          {room.room_number} - {room.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -396,28 +355,32 @@ export default function ExportarPagamentosPage() {
                         <TableHead>Status</TableHead>
                         <TableHead>Pago Em</TableHead>
                         <TableHead>Método</TableHead>
+                        <TableHead>Conta Bancária</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredPayments.map((payment) => (
                         <TableRow key={payment.id}>
                           <TableCell className="font-medium">
-                            {payment.booking.room.number}
+                            {payment.bookings?.rooms?.room_number || "N/A"}
                           </TableCell>
-                          <TableCell>{payment.booking.guest.full_name}</TableCell>
-                          <TableCell>{payment.booking.guest.tax_id || "N/A"}</TableCell>
+                          <TableCell>{payment.bookings?.guests?.full_name || "N/A"}</TableCell>
+                          <TableCell>{payment.bookings?.guests?.tax_id || "N/A"}</TableCell>
                           <TableCell>{getPaymentTypeLabel(payment.payment_type)}</TableCell>
                           <TableCell>€{payment.amount.toFixed(2)}</TableCell>
                           <TableCell>
-                            {new Date(payment.due_date).toLocaleDateString("pt-PT")}
+                            {payment.due_date ? new Date(payment.due_date).toLocaleDateString("pt-PT") : "N/A"}
                           </TableCell>
                           <TableCell>{getStatusBadge(payment)}</TableCell>
                           <TableCell>
-                            {payment.paid_date
-                              ? new Date(payment.paid_date).toLocaleDateString("pt-PT")
+                            {payment.payment_date
+                              ? new Date(payment.payment_date).toLocaleDateString("pt-PT")
                               : "-"}
                           </TableCell>
                           <TableCell>{payment.payment_method || "-"}</TableCell>
+                          <TableCell>
+                            {payment.bank_accounts?.name || "Sem conta"}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

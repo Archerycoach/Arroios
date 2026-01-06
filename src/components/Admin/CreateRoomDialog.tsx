@@ -7,8 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { roomService } from "@/services/roomService";
 import { propertyService } from "@/services/propertyService";
+import { bankAccountService } from "@/services/bankAccountService";
 import { Euro } from "lucide-react";
 import { RoomType } from "@/types";
+import type { Database } from "@/integrations/supabase/types";
+
+type BankAccount = Database["public"]["Tables"]["bank_accounts"]["Row"];
 
 interface CreateRoomFormData {
   name: string;
@@ -23,6 +27,7 @@ interface CreateRoomFormData {
   is_available: boolean;
   amenities: string[];
   images: string[];
+  bank_account_id: string;
 }
 
 interface CreateRoomDialogProps {
@@ -34,6 +39,7 @@ interface CreateRoomDialogProps {
 
 export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: CreateRoomDialogProps) {
   const [propertyId, setPropertyId] = useState<string | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [formData, setFormData] = useState<CreateRoomFormData>({
     name: "",
     room_number: "",
@@ -47,27 +53,32 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
     is_available: true,
     amenities: [],
     images: [],
+    bank_account_id: "",
   });
 
-  // Fetch property_id on mount
+  // Fetch property_id and bank accounts on mount
   useEffect(() => {
-    const fetchPropertyId = async () => {
+    const fetchData = async () => {
       try {
-        const properties = await propertyService.getAll();
+        const [properties, accounts] = await Promise.all([
+          propertyService.getAll(),
+          bankAccountService.getActive(),
+        ]);
+        
         if (properties && properties.length > 0) {
           setPropertyId(properties[0].id);
         } else {
-          // Fallback to known property ID if no properties found
           setPropertyId("ea17138c-f8ac-42d9-a62a-173ca0c61f50");
         }
+        
+        setBankAccounts(accounts);
       } catch (error) {
-        console.error("Error fetching property:", error);
-        // Use fallback property ID
+        console.error("Error fetching data:", error);
         setPropertyId("ea17138c-f8ac-42d9-a62a-173ca0c61f50");
       }
     };
     
-    fetchPropertyId();
+    fetchData();
   }, []);
 
   useEffect(() => {
@@ -85,6 +96,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         is_available: editRoom.is_available,
         amenities: editRoom.amenities || [],
         images: editRoom.images || [],
+        bank_account_id: editRoom.bank_account_id || "",
       });
     } else {
       setFormData({
@@ -100,6 +112,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         is_available: true,
         amenities: [],
         images: [],
+        bank_account_id: "",
       });
     }
   }, [editRoom, open]);
@@ -118,36 +131,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
       amenities: [],
       description: "",
       images: [],
-    });
-  };
-
-  // Auto-calculate prices based on the field that was changed
-  const handleDailyPriceChange = (value: number) => {
-    setFormData({
-      ...formData,
-      daily_price: value,
-      biweekly_price: value > 0 ? parseFloat((value * 14).toFixed(2)) : 0,
-      monthly_price: value > 0 ? parseFloat((value * 30).toFixed(2)) : 0,
-    });
-  };
-
-  const handleBiweeklyPriceChange = (value: number) => {
-    const dailyFromBiweekly = value > 0 ? parseFloat((value / 14).toFixed(2)) : 0;
-    setFormData({
-      ...formData,
-      daily_price: dailyFromBiweekly,
-      biweekly_price: value,
-      monthly_price: value > 0 ? parseFloat((dailyFromBiweekly * 30).toFixed(2)) : 0,
-    });
-  };
-
-  const handleMonthlyPriceChange = (value: number) => {
-    const dailyFromMonthly = value > 0 ? parseFloat((value / 30).toFixed(2)) : 0;
-    setFormData({
-      ...formData,
-      daily_price: dailyFromMonthly,
-      biweekly_price: value > 0 ? parseFloat((dailyFromMonthly * 14).toFixed(2)) : 0,
-      monthly_price: value,
+      bank_account_id: "",
     });
   };
 
@@ -169,13 +153,11 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
       return;
     }
 
-    // Validate that at least one price is provided
     if (!formData.daily_price && !formData.biweekly_price && !formData.monthly_price) {
       alert("Por favor, preencha pelo menos um dos preços (diário, quinzenal ou mensal)");
       return;
     }
 
-    // Validate that property_id is available
     if (!propertyId) {
       alert("Erro: Não foi possível obter o ID da propriedade. Por favor, contacte o suporte.");
       return;
@@ -183,7 +165,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
 
     try {
       const roomData = {
-        property_id: propertyId,  // ✅ Use dynamic property_id
+        property_id: propertyId,
         room_number: formData.room_number,
         name: formData.name,
         description: formData.description || undefined,
@@ -191,12 +173,13 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         daily_price: formData.daily_price,
         biweekly_price: formData.biweekly_price || null,
         monthly_price: formData.monthly_price || null,
-        base_price: formData.daily_price, // Keep for backward compatibility
+        base_price: formData.daily_price,
         max_guests: formData.max_guests,
         floor: formData.floor,
         is_available: formData.is_available,
         amenities: formData.amenities,
         images: editRoom?.images || [],
+        bank_account_id: formData.bank_account_id || null,
       };
 
       if (editRoom) {
@@ -216,7 +199,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{editRoom ? "Editar" : "Novo"} Quarto</DialogTitle>
           <DialogDescription>
@@ -280,7 +263,31 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
               </div>
             </div>
 
-            {/* Pricing - Monthly is primary, biweekly is auto-calculated */}
+            {/* Bank Account Selection */}
+            <div className="grid gap-2">
+              <Label htmlFor="bank_account_id">Conta Bancária</Label>
+              <Select 
+                value={formData.bank_account_id} 
+                onValueChange={(value) => setFormData({ ...formData, bank_account_id: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a conta bancária (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Nenhuma conta associada</SelectItem>
+                  {bankAccounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name} {account.bank_name ? `(${account.bank_name})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Os pagamentos deste quarto serão associados a esta conta
+              </p>
+            </div>
+
+            {/* Pricing */}
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="monthly_price">Preço Mensal (€) *</Label>

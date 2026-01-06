@@ -20,7 +20,8 @@ import {
   Palette,
   Type,
   ExternalLink,
-  Download
+  Download,
+  Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,6 +51,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Receitas", href: "/admin/receitas", icon: TrendingUp, adminOnly: false },
     { name: "Exportar Pagamentos", href: "/admin/exportar-pagamentos", icon: Download, adminOnly: false },
     { name: "Despesas", href: "/admin/expenses", icon: Wallet, adminOnly: false },
+    { name: "Contas Bancárias", href: "/admin/contas-bancarias", icon: Building2, adminOnly: false },
     { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign, adminOnly: true },
     { name: "Relatórios", href: "/admin/relatorios", icon: TrendingUp, adminOnly: true },
     { name: "Clientes", href: "/admin/clientes", icon: Users, adminOnly: false },

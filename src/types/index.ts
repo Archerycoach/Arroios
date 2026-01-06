@@ -160,21 +160,30 @@ export type BookingStatus =
   | "no-show"
   | "completed";
 
-export type PaymentType = "daily" | "biweekly" | "monthly";
+export type PaymentType = "daily" | "biweekly" | "monthly" | "deposit" | "deposit_refund" | "other";
 
 // Payment
 export interface Payment {
   id: string;
-  bookingId: string;
+  bookingId?: string; // Frontend legacy
+  booking_id?: string; // DB column
   amount: number;
   currency: string;
   status: PaymentStatus;
-  method: PaymentMethod;
+  method?: PaymentMethod; // Frontend legacy
+  payment_method?: string; // DB column
+  payment_type: string; // DB column
+  due_date?: string; // DB column - REQUIRED for ordering
+  payment_date?: string; // DB column
+  notes?: string;
   stripePaymentIntentId?: string;
   stripeChargeId?: string;
   refundedAmount?: number;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  created_at?: string;
+  updatedAt?: string;
+  updated_at?: string;
+  bank_account_id?: string;
 }
 
 export type PaymentStatus = 
@@ -183,7 +192,10 @@ export type PaymentStatus =
   | "succeeded"
   | "failed"
   | "refunded"
-  | "partially_refunded";
+  | "partially_refunded"
+  | "paid"
+  | "overdue"
+  | "cancelled";
 
 export type PaymentMethod = "card" | "bank_transfer" | "cash" | "other";
 
@@ -391,3 +403,20 @@ export type NotificationType =
   | "special_request"
   | "message_received"
   | "system";
+
+export interface PaymentWithDetails extends Payment {
+  bookings?: {
+    id: string;
+    booking_number: string;
+    check_in_date: string;
+    check_out_date: string;
+    guests?: Guest;
+    rooms?: Room;
+  };
+  bank_accounts?: {
+    id: string;
+    name: string;
+    bank_name?: string;
+    iban?: string;
+  };
+}

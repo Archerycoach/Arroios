@@ -113,6 +113,45 @@ export type Database = {
           },
         ]
       }
+      bank_accounts: {
+        Row: {
+          account_holder: string | null
+          bank_name: string | null
+          created_at: string | null
+          iban: string | null
+          id: string
+          is_active: boolean | null
+          name: string
+          notes: string | null
+          swift_bic: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          account_holder?: string | null
+          bank_name?: string | null
+          created_at?: string | null
+          iban?: string | null
+          id?: string
+          is_active?: boolean | null
+          name: string
+          notes?: string | null
+          swift_bic?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          account_holder?: string | null
+          bank_name?: string | null
+          created_at?: string | null
+          iban?: string | null
+          id?: string
+          is_active?: boolean | null
+          name?: string
+          notes?: string | null
+          swift_bic?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       booking_add_ons: {
         Row: {
           add_on_id: string
@@ -783,14 +822,18 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          bank_account_id: string | null
           booking_id: string
           created_at: string | null
           currency: string | null
+          due_date: string | null
           failure_reason: string | null
           id: string
           metadata: Json | null
           paid_at: string | null
+          payment_date: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
+          payment_type: string | null
           refunded_amount: number | null
           refunded_at: string | null
           status: Database["public"]["Enums"]["payment_status"]
@@ -801,14 +844,18 @@ export type Database = {
         }
         Insert: {
           amount: number
+          bank_account_id?: string | null
           booking_id: string
           created_at?: string | null
           currency?: string | null
+          due_date?: string | null
           failure_reason?: string | null
           id?: string
           metadata?: Json | null
           paid_at?: string | null
+          payment_date?: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
+          payment_type?: string | null
           refunded_amount?: number | null
           refunded_at?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
@@ -819,14 +866,18 @@ export type Database = {
         }
         Update: {
           amount?: number
+          bank_account_id?: string | null
           booking_id?: string
           created_at?: string | null
           currency?: string | null
+          due_date?: string | null
           failure_reason?: string | null
           id?: string
           metadata?: Json | null
           paid_at?: string | null
+          payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]
+          payment_type?: string | null
           refunded_amount?: number | null
           refunded_at?: string | null
           status?: Database["public"]["Enums"]["payment_status"]
@@ -836,6 +887,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "payments_bank_account_id_fkey"
+            columns: ["bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "payments_booking_id_fkey"
             columns: ["booking_id"]
@@ -923,6 +981,7 @@ export type Database = {
       rooms: {
         Row: {
           amenities: Json | null
+          bank_account_id: string | null
           base_price: number
           beds: Json
           biweekly_price: number | null
@@ -951,6 +1010,7 @@ export type Database = {
         }
         Insert: {
           amenities?: Json | null
+          bank_account_id?: string | null
           base_price: number
           beds?: Json
           biweekly_price?: number | null
@@ -979,6 +1039,7 @@ export type Database = {
         }
         Update: {
           amenities?: Json | null
+          bank_account_id?: string | null
           base_price?: number
           beds?: Json
           biweekly_price?: number | null
@@ -1006,6 +1067,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "rooms_bank_account_id_fkey"
+            columns: ["bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "rooms_property_id_fkey"
             columns: ["property_id"]

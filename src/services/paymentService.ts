@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import { PaymentWithDetails } from "@/types";
 
 type BookingPayment = Database["public"]["Tables"]["booking_payments"]["Row"];
 type BookingPaymentInsert = Database["public"]["Tables"]["booking_payments"]["Insert"];
@@ -12,56 +13,66 @@ export const paymentService = {
   async generatePaymentsForBooking(
     bookingId: string,
     monthlyAmount: number,
-    numberOfMonths: number,
-    startDate: string,
+    numberOfInstallments: number,
+    checkInDate: string,
     includeDeposit: boolean = true,
-    depositAmount?: number
+    depositAmount: number = 0
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      console.log("🔵 Generating payments:", { bookingId, monthlyAmount, numberOfMonths, startDate, includeDeposit });
-      
-      const payments: BookingPaymentInsert[] = [];
-      const start = new Date(startDate);
+      // Get booking details to fetch room's bank account
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select(`
+          *,
+          rooms!inner (
+            bank_account_id
+          )
+        `)
+        .eq("id", bookingId)
+        .single();
+
+      if (bookingError) throw bookingError;
+
+      const bankAccountId = booking.rooms?.bank_account_id || null;
+      const baseDate = new Date(checkInDate);
+      const payments = [];
 
       // Generate monthly payments
-      for (let i = 0; i < numberOfMonths; i++) {
-        const dueDate = new Date(start);
-        dueDate.setMonth(start.getMonth() + i);
+      for (let i = 0; i < numberOfInstallments; i++) {
+        const dueDate = new Date(baseDate);
+        dueDate.setMonth(dueDate.getMonth() + i);
 
         payments.push({
           booking_id: bookingId,
-          payment_type: "monthly",
           amount: monthlyAmount,
-          due_date: dueDate.toISOString().split("T")[0],
-          status: "pending",
+          due_date: dueDate.toISOString(),
+          payment_type: "monthly" as const,
+          status: "pending" as const,
+          bank_account_id: bankAccountId,
         });
       }
 
-      // Add security deposit (due on first day) - only if includeDeposit is true
-      if (includeDeposit) {
+      // Add security deposit if requested
+      if (includeDeposit && depositAmount > 0) {
         payments.push({
           booking_id: bookingId,
-          payment_type: "deposit",
-          amount: depositAmount || monthlyAmount, // Same as monthly amount
-          due_date: startDate,
-          status: "pending",
+          amount: depositAmount,
+          due_date: baseDate.toISOString(),
+          payment_type: "deposit" as const,
+          status: "pending" as const,
+          bank_account_id: bankAccountId,
         });
       }
 
-      console.log("🔵 Payments to insert:", payments);
+      const { error: insertError } = await supabase
+        .from("payments")
+        .insert(payments);
 
-      const { data, error } = await supabase.from("booking_payments").insert(payments).select();
-
-      if (error) {
-        console.error("❌ Error inserting payments:", error);
-        throw error;
-      }
-
-      console.log("✅ Payments inserted successfully:", data);
+      if (insertError) throw insertError;
 
       return { success: true };
     } catch (error) {
-      console.error("❌ Error generating payments:", error);
+      console.error("Error generating payments:", error);
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
@@ -381,5 +392,92 @@ export const paymentService = {
       console.error("Error fetching all payments with details:", error);
       return [];
     }
+  },
+
+  async getAll(): Promise<PaymentWithDetails[]> {
+    const { data, error } = await supabase
+      .from("payments")
+      .select(`
+        *,
+        bookings!inner (
+          id,
+          booking_number,
+          check_in_date,
+          check_out_date,
+          guests!inner (
+            id,
+            full_name,
+            email
+          ),
+          rooms!inner (
+            id,
+            name,
+            room_number,
+            room_type
+          )
+        ),
+        bank_accounts (
+          id,
+          name,
+          bank_name,
+          iban
+        )
+      `)
+      .order("due_date", { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map((payment) => ({
+      ...payment,
+      bookings: Array.isArray(payment.bookings) ? payment.bookings[0] : payment.bookings,
+      bank_accounts: Array.isArray(payment.bank_accounts) ? payment.bank_accounts[0] : payment.bank_accounts,
+      // Ensure payment_type is treated as string if missing in types but present in DB
+      payment_type: (payment as any).payment_type || "other",
+    })) as unknown as PaymentWithDetails[];
+  },
+
+  async getById(id: string): Promise<PaymentWithDetails | null> {
+    const { data, error } = await supabase
+      .from("payments")
+      .select(`
+        *,
+        bookings!inner (
+          id,
+          booking_number,
+          check_in_date,
+          check_out_date,
+          guests!inner (
+            id,
+            full_name,
+            email
+          ),
+          rooms!inner (
+            id,
+            name,
+            room_number,
+            room_type
+          )
+        ),
+        bank_accounts (
+          id,
+          name,
+          bank_name,
+          iban
+        )
+      `)
+      .eq("id", id)
+      .single();
+
+    if (error) throw error;
+
+    if (!data) return null;
+
+    return {
+      ...data,
+      bookings: Array.isArray(data.bookings) ? data.bookings[0] : data.bookings,
+      bank_accounts: Array.isArray(data.bank_accounts) ? data.bank_accounts[0] : data.bank_accounts,
+      // Ensure payment_type is treated as string if missing in types but present in DB
+      payment_type: (data as any).payment_type || "other",
+    } as unknown as PaymentWithDetails;
   },
 };
