@@ -139,6 +139,8 @@ export interface Booking {
   discount?: number;
   couponCode?: string;
   specialRequests: string;
+  paymentType?: PaymentType;
+  customPrice?: number;
   cancellationReason?: string;
   cancelledAt?: string;
   createdAt: string;
@@ -152,6 +154,8 @@ export type BookingStatus =
   | "cancelled"
   | "no-show"
   | "completed";
+
+export type PaymentType = "daily" | "biweekly" | "monthly";
 
 // Payment
 export interface Payment {

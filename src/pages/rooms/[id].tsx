@@ -5,13 +5,14 @@ import { MainLayout } from "@/components/Layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Calendar } from "@/components/ui/calendar";
 import { useToast } from "@/hooks/use-toast";
 import { roomService, type RoomWithProperty } from "@/services/roomService";
 import { bookingService } from "@/services/bookingService";
 import { format, addDays } from "date-fns";
 import { pt } from "date-fns/locale";
 import { Users, Check, Star, MapPin, Calendar as CalendarIcon, Info } from "lucide-react";
+import { DateInput } from "@/components/ui/date-input";
+import { Label } from "@/components/ui/label";
 
 export default function RoomDetailPage() {
   const router = useRouter();
@@ -20,13 +21,8 @@ export default function RoomDetailPage() {
   
   const [room, setRoom] = useState<RoomWithProperty | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dateRange, setDateRange] = useState<{
-    from: Date | undefined;
-    to: Date | undefined;
-  }>({
-    from: undefined,
-    to: undefined,
-  });
+  const [checkInDate, setCheckInDate] = useState("");
+  const [checkOutDate, setCheckOutDate] = useState("");
 
   useEffect(() => {
     if (id) {
@@ -52,7 +48,7 @@ export default function RoomDetailPage() {
   };
 
   const handleBooking = () => {
-    if (!dateRange.from || !dateRange.to) {
+    if (!checkInDate || !checkOutDate) {
       toast({
         title: "Selecione as datas",
         description: "Por favor selecione as datas de check-in e check-out.",
@@ -65,8 +61,8 @@ export default function RoomDetailPage() {
       pathname: "/checkout",
       query: {
         roomId: room?.id,
-        checkIn: format(dateRange.from, "yyyy-MM-dd"),
-        checkOut: format(dateRange.to, "yyyy-MM-dd"),
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
       },
     });
   };
@@ -144,20 +140,40 @@ export default function RoomDetailPage() {
           <div className="lg:col-span-1">
             <Card className="sticky top-24">
               <CardContent className="p-6 space-y-6">
-                <div className="text-center">
-                  <span className="text-3xl font-bold">€{room.base_price}</span>
-                  <span className="text-muted-foreground"> / noite</span>
+                <div className="text-center border-b pb-4">
+                  <div className="text-3xl font-bold">€{room.base_price}</div>
+                  <div className="text-sm text-muted-foreground">por noite</div>
+                  
+                  <div className="mt-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Quinzenal (14 dias):</span>
+                      <span className="font-medium">€{(room.base_price * 14).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Mensal (30 dias):</span>
+                      <span className="font-medium">€{(room.base_price * 30).toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Datas</label>
-                  <div className="border rounded-lg p-2 flex justify-center">
-                    <Calendar
-                      mode="range"
-                      selected={dateRange}
-                      onSelect={(range: any) => setDateRange(range)}
-                      numberOfMonths={1}
-                      disabled={(date) => date < new Date()}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Check-in</Label>
+                    <input
+                      type="date"
+                      value={checkInDate}
+                      onChange={(e) => setCheckInDate(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">Check-out</Label>
+                    <input
+                      type="date"
+                      value={checkOutDate}
+                      onChange={(e) => setCheckOutDate(e.target.value)}
+                      className="w-full"
                     />
                   </div>
                 </div>
@@ -166,7 +182,7 @@ export default function RoomDetailPage() {
                   className="w-full" 
                   size="lg"
                   onClick={handleBooking}
-                  disabled={!dateRange.from || !dateRange.to}
+                  disabled={!checkInDate || !checkOutDate}
                 >
                   Reservar Agora
                 </Button>

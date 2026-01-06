@@ -22,8 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -31,11 +29,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { supabase } from "@/integrations/supabase/client";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
+import { exportToExcel, revenueExportColumns } from "@/lib/exportUtils";
 
 export default function ReceitasPage() {
   const [bookings, setBookings] = useState<any[]>([]);
@@ -45,6 +46,7 @@ export default function ReceitasPage() {
   const [showExtraDialog, setShowExtraDialog] = useState(false);
   const [showBookingRevenueDialog, setShowBookingRevenueDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
+  const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
 
   // Form data for booking revenue
   const [bookingRevenueForm, setBookingRevenueForm] = useState({
@@ -86,7 +88,12 @@ export default function ReceitasPage() {
   const loadBookingRevenues = async () => {
     try {
       const data = await bookingService.getAll();
-      return data.filter((b: any) => b.status === "paid" || b.status === "completed");
+      const cutoffDate = subMonths(new Date(), period);
+      return data.filter((b: any) => {
+        const isValidStatus = b.status === "paid" || b.status === "completed";
+        const isInPeriod = new Date(b.created_at) >= cutoffDate;
+        return isValidStatus && isInPeriod;
+      });
     } catch (error) {
       console.error("Error loading booking revenues:", error);
       return [];
@@ -95,6 +102,7 @@ export default function ReceitasPage() {
 
   const loadExtraRevenues = async () => {
     try {
+      const cutoffDate = subMonths(new Date(), period);
       const { data, error } = await supabase
         .from("extra_revenues")
         .select(`
@@ -105,6 +113,7 @@ export default function ReceitasPage() {
             rooms (room_number)
           )
         `)
+        .gte("date", cutoffDate.toISOString())
         .order("date", { ascending: false });
 
       if (error) throw error;
@@ -178,6 +187,22 @@ export default function ReceitasPage() {
     }
   };
 
+  const handleExportToExcel = () => {
+    const exportData = filteredRevenues.map(revenue => ({
+      date: revenue.date,
+      type: revenue.type === "booking" ? "Reserva" : "Extra",
+      customer: revenue.customer,
+      room: revenue.room,
+      description: revenue.description,
+      nights: revenue.nights,
+      amount: revenue.amount,
+      channel: revenue.channel,
+    }));
+
+    const periodLabel = period === 1 ? "1mes" : period === 3 ? "3meses" : period === 6 ? "6meses" : "12meses";
+    exportToExcel(exportData, revenueExportColumns, `receitas_${periodLabel}`);
+  };
+
   const totalBookingRevenue = bookings.reduce((sum, b) => sum + b.total_amount, 0);
   const totalExtraRevenue = extraRevenues.reduce((sum, e) => sum + e.amount, 0);
   const totalRevenue = totalBookingRevenue + totalExtraRevenue;
@@ -240,6 +265,21 @@ export default function ReceitasPage() {
             <p className="text-muted-foreground mt-2">Análise de todas as entradas de receita</p>
           </div>
           <div className="flex gap-2">
+            <Select value={period.toString()} onValueChange={(v) => setPeriod(Number(v) as 1 | 3 | 6 | 12)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Último Mês</SelectItem>
+                <SelectItem value="3">Últimos 3 Meses</SelectItem>
+                <SelectItem value="6">Últimos 6 Meses</SelectItem>
+                <SelectItem value="12">Últimos 12 Meses</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={handleExportToExcel}>
+              <Download className="h-4 w-4 mr-2" />
+              Exportar Excel
+            </Button>
             <Button onClick={() => setShowBookingRevenueDialog(true)} variant="outline">
               <Hotel className="h-4 w-4 mr-2" />
               Receita

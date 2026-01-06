@@ -5,13 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { format, parseISO, isWithinInterval } from "date-fns";
+import { format, parseISO, isWithinInterval, differenceInDays } from "date-fns";
 import { pt } from "date-fns/locale";
-import { CalendarIcon, UserPlus, AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { Room, Guest } from "@/types";
+import { UserPlus, AlertCircle, Calculator } from "lucide-react";
+import { Room, Guest, PaymentType } from "@/types";
 import { roomService } from "@/services/roomService";
 import { guestService } from "@/services/guestService";
 import { bookingService, BookingWithDetails } from "@/services/bookingService";
@@ -30,16 +27,15 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
   const [allBookings, setAllBookings] = useState<BookingWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
   const [showNewGuestForm, setShowNewGuestForm] = useState(false);
-  const [checkInOpen, setCheckInOpen] = useState(false);
-  const [checkOutOpen, setCheckOutOpen] = useState(false);
   const [dateConflictError, setDateConflictError] = useState<string>("");
   
   const [formData, setFormData] = useState({
     guest_id: "",
     room_id: "",
-    check_in_date: undefined as Date | undefined,
-    check_out_date: undefined as Date | undefined,
-    total_price: "",
+    check_in_date: "",
+    check_out_date: "",
+    payment_type: "daily" as PaymentType,
+    custom_price: "",
     status: "confirmed" as const,
     special_requests: "",
   });
@@ -70,6 +66,16 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     }
   }, [formData.room_id, formData.check_in_date, formData.check_out_date]);
 
+  // Calculate price when room, dates, or payment type changes
+  useEffect(() => {
+    if (formData.room_id && formData.check_in_date && formData.check_out_date) {
+      const calculatedPrice = calculatePrice();
+      if (calculatedPrice > 0 && !formData.custom_price) {
+        setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
+      }
+    }
+  }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.payment_type]);
+
   const loadData = async () => {
     try {
       const [roomsData, guestsData, bookingsData] = await Promise.all([
@@ -85,7 +91,15 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     }
   };
 
-  const validateDates = (roomId: string, checkIn: Date, checkOut: Date) => {
+  const validateDates = (roomId: string, checkInStr: string, checkOutStr: string) => {
+    if (!checkInStr || !checkOutStr) {
+      setDateConflictError("");
+      return;
+    }
+
+    const checkIn = new Date(checkInStr);
+    const checkOut = new Date(checkOutStr);
+
     const roomBookings = allBookings.filter(
       booking => booking.room_id === roomId && booking.status !== "cancelled"
     );
@@ -96,7 +110,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       const existingCheckIn = parseISO(booking.check_in_date);
       const existingCheckOut = parseISO(booking.check_out_date);
 
-      // Check if new dates overlap with existing booking
       const newCheckInOverlaps = isWithinInterval(checkIn, {
         start: existingCheckIn,
         end: existingCheckOut
@@ -119,6 +132,35 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       setDateConflictError("As datas selecionadas sobrepõem-se a uma reserva existente neste quarto.");
     } else {
       setDateConflictError("");
+    }
+  };
+
+  const calculatePrice = (): number => {
+    const selectedRoom = rooms.find(r => r.id === formData.room_id);
+    if (!selectedRoom || !formData.check_in_date || !formData.check_out_date) return 0;
+
+    const checkIn = new Date(formData.check_in_date);
+    const checkOut = new Date(formData.check_out_date);
+    const days = differenceInDays(checkOut, checkIn);
+
+    switch (formData.payment_type) {
+      case "daily":
+        return selectedRoom.base_price * days;
+      case "biweekly":
+        const biweeks = Math.ceil(days / 14);
+        return selectedRoom.base_price * 14 * biweeks;
+      case "monthly":
+        const months = Math.ceil(days / 30);
+        return selectedRoom.base_price * 30 * months;
+      default:
+        return selectedRoom.base_price * days;
+    }
+  };
+
+  const handleRecalculate = () => {
+    const calculatedPrice = calculatePrice();
+    if (calculatedPrice > 0) {
+      setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
     }
   };
 
@@ -148,31 +190,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     }
   };
 
-  const handleCheckInSelect = (date: Date | undefined) => {
-    setFormData(prev => ({ ...prev, check_in_date: date }));
-    setCheckInOpen(false);
-  };
-
-  const handleCheckOutSelect = (date: Date | undefined) => {
-    setFormData(prev => ({ ...prev, check_out_date: date }));
-    setCheckOutOpen(false);
-  };
-
-  const disabledCheckInDates = (date: Date) => {
-    return date < new Date(new Date().setHours(0, 0, 0, 0));
-  };
-
-  const disabledCheckOutDates = (date: Date) => {
-    const today = new Date(new Date().setHours(0, 0, 0, 0));
-    if (date < today) return true;
-    if (formData.check_in_date) {
-      const nextDay = new Date(formData.check_in_date);
-      nextDay.setDate(nextDay.getDate() + 1);
-      return date < nextDay;
-    }
-    return false;
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -183,6 +200,11 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
 
     if (!formData.check_in_date || !formData.check_out_date) {
       alert("Por favor, selecione as datas de check-in e check-out");
+      return;
+    }
+
+    if (!formData.custom_price || parseFloat(formData.custom_price) <= 0) {
+      alert("Por favor, defina um valor válido para a reserva");
       return;
     }
 
@@ -197,11 +219,14 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       const selectedRoom = rooms.find(r => r.id === formData.room_id);
       if (!selectedRoom) return;
 
+      const checkIn = new Date(formData.check_in_date);
+      const checkOut = new Date(formData.check_out_date);
+
       const nights = Math.ceil(
-        (formData.check_out_date!.getTime() - formData.check_in_date!.getTime()) / (1000 * 60 * 60 * 24)
+        (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      const totalAmount = (selectedRoom?.base_price || 0) * nights;
+      const totalAmount = parseFloat(formData.custom_price);
 
       const userResponse = await supabase.auth.getUser();
       const userId = userResponse.data.user?.id;
@@ -209,13 +234,15 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       const bookingData = {
         room_id: formData.room_id,
         guest_id: formData.guest_id,
-        check_in_date: formData.check_in_date!.toISOString(),
-        check_out_date: formData.check_out_date!.toISOString(),
+        check_in_date: checkIn.toISOString(),
+        check_out_date: checkOut.toISOString(),
         booking_number: `BK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
         status: "pending" as const,
         room_price: selectedRoom?.base_price || 0,
         total_amount: totalAmount,
         num_nights: nights,
+        payment_type: formData.payment_type,
+        custom_price: totalAmount,
         special_requests: formData.special_requests || "",
         user_id: userId,
       };
@@ -236,22 +263,45 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     setFormData({
       room_id: "",
       guest_id: "",
-      check_in_date: undefined,
-      check_out_date: undefined,
-      total_price: "",
+      check_in_date: "",
+      check_out_date: "",
+      payment_type: "daily",
+      custom_price: "",
       status: "confirmed",
       special_requests: "",
     });
-    setCheckInOpen(false);
-    setCheckOutOpen(false);
     setDateConflictError("");
   };
 
   const selectedRoom = rooms.find(r => r.id === formData.room_id);
-  const nights = formData.check_out_date && formData.check_in_date
-    ? Math.ceil((formData.check_out_date.getTime() - formData.check_in_date.getTime()) / (1000 * 60 * 60 * 24))
+  const days = formData.check_out_date && formData.check_in_date
+    ? differenceInDays(new Date(formData.check_out_date), new Date(formData.check_in_date))
     : 0;
-  const totalPrice = selectedRoom ? selectedRoom.base_price * nights : 0;
+  const calculatedPrice = calculatePrice();
+  const finalPrice = formData.custom_price ? parseFloat(formData.custom_price) : calculatedPrice;
+
+  const getPaymentTypeLabel = (type: PaymentType) => {
+    switch (type) {
+      case "daily": return "Diária";
+      case "biweekly": return "Quinzenal";
+      case "monthly": return "Mensal";
+    }
+  };
+
+  const getPeriodInfo = () => {
+    if (!selectedRoom || days <= 0) return null;
+    
+    switch (formData.payment_type) {
+      case "daily":
+        return `${days} dias × €${selectedRoom.base_price}/dia`;
+      case "biweekly":
+        const biweeks = Math.ceil(days / 14);
+        return `${biweeks} quinzena(s) × €${(selectedRoom.base_price * 14).toFixed(2)}/quinzena (${days} dias)`;
+      case "monthly":
+        const months = Math.ceil(days / 30);
+        return `${months} mês(es) × €${(selectedRoom.base_price * 30).toFixed(2)}/mês (${days} dias)`;
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -276,7 +326,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               <SelectContent>
                 {rooms.map((room) => (
                   <SelectItem key={room.id} value={room.id}>
-                    Quarto {room.room_number || room.name} - {room.room_type} (€{room.base_price}/noite)
+                    Quarto {room.room_number || room.name} - {room.room_type} (€{room.base_price}/dia)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -384,67 +434,25 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
           {/* Dates */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Check-in *</Label>
-              <Popover open={checkInOpen} onOpenChange={setCheckInOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !formData.check_in_date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {formData.check_in_date ? (
-                      format(formData.check_in_date, "PPP", { locale: pt })
-                    ) : (
-                      <span>Selecione a data</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={formData.check_in_date}
-                    onSelect={handleCheckInSelect}
-                    disabled={disabledCheckInDates}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="check_in_date">Check-in *</Label>
+              <Input
+                type="date"
+                id="check_in_date"
+                value={formData.check_in_date}
+                onChange={(e) => setFormData({ ...formData, check_in_date: e.target.value })}
+                required
+              />
             </div>
 
             <div className="space-y-2">
-              <Label>Check-out *</Label>
-              <Popover open={checkOutOpen} onOpenChange={setCheckOutOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !formData.check_out_date && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {formData.check_out_date ? (
-                      format(formData.check_out_date, "PPP", { locale: pt })
-                    ) : (
-                      <span>Selecione a data</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={formData.check_out_date}
-                    onSelect={handleCheckOutSelect}
-                    disabled={disabledCheckOutDates}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="check_out_date">Check-out *</Label>
+              <Input
+                type="date"
+                id="check_out_date"
+                value={formData.check_out_date}
+                onChange={(e) => setFormData({ ...formData, check_out_date: e.target.value })}
+                required
+              />
             </div>
           </div>
 
@@ -454,6 +462,86 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{dateConflictError}</AlertDescription>
             </Alert>
+          )}
+
+          {/* Payment Type Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="payment_type">
+              Tipo de Cobrança <span className="text-destructive">*</span>
+            </Label>
+            <Select 
+              value={formData.payment_type} 
+              onValueChange={(value: PaymentType) => setFormData({ ...formData, payment_type: value })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="daily">Diária (por dia)</SelectItem>
+                <SelectItem value="biweekly">Quinzenal (14 dias)</SelectItem>
+                <SelectItem value="monthly">Mensal (30 dias)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Price Calculation */}
+          {selectedRoom && days > 0 && (
+            <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Tipo de Cobrança</div>
+                  <div className="text-sm text-muted-foreground">{getPaymentTypeLabel(formData.payment_type)}</div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRecalculate}
+                >
+                  <Calculator className="h-4 w-4 mr-2" />
+                  Recalcular
+                </Button>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t">
+                <div className="text-sm text-muted-foreground">
+                  {getPeriodInfo()}
+                </div>
+                <div className="text-sm font-medium">
+                  Valor Calculado: €{calculatedPrice.toFixed(2)}
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t">
+                <Label htmlFor="custom_price">
+                  Valor Final <span className="text-destructive">*</span>
+                  <span className="text-xs text-muted-foreground ml-2">(ajustável)</span>
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                  <Input
+                    id="custom_price"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.custom_price}
+                    onChange={(e) => setFormData({ ...formData, custom_price: e.target.value })}
+                    placeholder="0.00"
+                    className="pl-7"
+                    required
+                  />
+                </div>
+              </div>
+
+              {formData.custom_price && parseFloat(formData.custom_price) !== calculatedPrice && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Valor ajustado manualmente (diferença: €{(parseFloat(formData.custom_price) - calculatedPrice).toFixed(2)})
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
           )}
 
           {/* Special Requests */}
@@ -466,20 +554,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               placeholder="Cama extra, berço, late check-in..."
             />
           </div>
-
-          {/* Price Summary */}
-          {selectedRoom && nights > 0 && (
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>€{selectedRoom.base_price}/noite × {nights} noites</span>
-                <span>€{totalPrice.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between font-semibold border-t pt-2">
-                <span>Total</span>
-                <span>€{totalPrice.toFixed(2)}</span>
-              </div>
-            </div>
-          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

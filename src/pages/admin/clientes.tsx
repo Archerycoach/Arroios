@@ -14,9 +14,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, UserPlus, Mail, Phone, Calendar, TrendingUp, Users, Star, DollarSign } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Search, UserPlus, Mail, Phone, Calendar, TrendingUp, Users, Star, DollarSign, Download, Pencil, Trash2 } from "lucide-react";
 import { guestService } from "@/services/guestService";
 import { bookingService } from "@/services/bookingService";
+import { exportToExcel, guestExportColumns } from "@/lib/exportUtils";
 import { format } from "date-fns";
 import { pt } from "date-fns/locale";
 
@@ -40,6 +51,9 @@ export default function ClientesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<EnrichedGuest | null>(null);
+  const [deletingGuest, setDeletingGuest] = useState<EnrichedGuest | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
     loadGuests();
@@ -92,6 +106,47 @@ export default function ClientesPage() {
   const avgLTV = totalGuests > 0 ? (guests.reduce((sum, g) => sum + g.totalSpent, 0) / totalGuests).toFixed(2) : "0";
   const avgSatisfaction = "4.7"; // Mock value
 
+  const handleExportToExcel = () => {
+    const exportData = filteredGuests.map(guest => ({
+      ...guest,
+      // Format dates for export
+      date_of_birth: guest.date_of_birth || "",
+      created_at: guest.created_at || "",
+    }));
+
+    exportToExcel(exportData, guestExportColumns, "clientes");
+  };
+
+  const handleEdit = (guest: EnrichedGuest) => {
+    setEditingGuest(guest);
+    setShowCreateDialog(true);
+  };
+
+  const handleDeleteClick = (guest: EnrichedGuest) => {
+    setDeletingGuest(guest);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingGuest) return;
+
+    setDeleteLoading(true);
+    try {
+      await guestService.delete(deletingGuest.id);
+      await loadGuests();
+      setDeletingGuest(null);
+    } catch (error) {
+      console.error("Error deleting guest:", error);
+      alert("Erro ao apagar cliente. Por favor, tente novamente.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleDialogClose = () => {
+    setShowCreateDialog(false);
+    setEditingGuest(null);
+  };
+
   if (loading) {
     return (
       <AdminLayout>
@@ -114,10 +169,16 @@ export default function ClientesPage() {
                 Gestão de hóspedes e histórico
               </p>
             </div>
-            <Button onClick={() => setShowCreateDialog(true)}>
-              <UserPlus className="h-4 w-4 mr-2" />
-              Novo Cliente
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={handleExportToExcel}>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar Excel
+              </Button>
+              <Button onClick={() => setShowCreateDialog(true)}>
+                <UserPlus className="h-4 w-4 mr-2" />
+                Novo Cliente
+              </Button>
+            </div>
           </div>
 
           {/* Stats Cards */}
@@ -199,6 +260,7 @@ export default function ClientesPage() {
                     <TableHead>Reservas</TableHead>
                     <TableHead>Total Gasto</TableHead>
                     <TableHead>Última Estadia</TableHead>
+                    <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -242,12 +304,32 @@ export default function ClientesPage() {
                           "-"
                         )}
                       </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(guest)}
+                            className="h-8 w-8 p-0"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteClick(guest)}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
 
                   {filteredGuests.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                         Nenhum cliente encontrado
                       </TableCell>
                     </TableRow>
@@ -260,9 +342,43 @@ export default function ClientesPage() {
           {/* Create Guest Dialog */}
           <CreateGuestDialog
             open={showCreateDialog}
-            onOpenChange={setShowCreateDialog}
+            onOpenChange={handleDialogClose}
             onSuccess={loadGuests}
+            editGuest={editingGuest}
           />
+
+          {/* Delete Confirmation Dialog */}
+          <AlertDialog open={!!deletingGuest} onOpenChange={() => setDeletingGuest(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Tem a certeza?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Esta ação não pode ser desfeita. Isto irá apagar permanentemente o cliente{" "}
+                  <span className="font-semibold">{deletingGuest?.full_name}</span>.
+                  {deletingGuest && deletingGuest.bookingCount > 0 && (
+                    <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+                      <p className="text-sm font-medium text-destructive">
+                        ⚠️ Atenção: Este cliente tem {deletingGuest.bookingCount} reserva(s) associada(s).
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        As reservas associadas também serão eliminadas.
+                      </p>
+                    </div>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={deleteLoading}>Cancelar</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDeleteConfirm}
+                  disabled={deleteLoading}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {deleteLoading ? "A apagar..." : "Apagar Cliente"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </AdminLayout>
     </ProtectedAdminPage>

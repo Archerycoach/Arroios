@@ -102,6 +102,36 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
     });
   };
 
+  // Auto-calculate prices based on the field that was changed
+  const handleDailyPriceChange = (value: number) => {
+    setFormData({
+      ...formData,
+      daily_price: value,
+      biweekly_price: value > 0 ? parseFloat((value * 14).toFixed(2)) : 0,
+      monthly_price: value > 0 ? parseFloat((value * 30).toFixed(2)) : 0,
+    });
+  };
+
+  const handleBiweeklyPriceChange = (value: number) => {
+    const dailyFromBiweekly = value > 0 ? parseFloat((value / 14).toFixed(2)) : 0;
+    setFormData({
+      ...formData,
+      daily_price: dailyFromBiweekly,
+      biweekly_price: value,
+      monthly_price: value > 0 ? parseFloat((dailyFromBiweekly * 30).toFixed(2)) : 0,
+    });
+  };
+
+  const handleMonthlyPriceChange = (value: number) => {
+    const dailyFromMonthly = value > 0 ? parseFloat((value / 30).toFixed(2)) : 0;
+    setFormData({
+      ...formData,
+      daily_price: dailyFromMonthly,
+      biweekly_price: value > 0 ? parseFloat((dailyFromMonthly * 14).toFixed(2)) : 0,
+      monthly_price: value,
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -239,9 +269,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
                       min="0"
                       step="0.01"
                       value={formData.daily_price}
-                      onChange={(e) =>
-                        setFormData({ ...formData, daily_price: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => handleDailyPriceChange(parseFloat(e.target.value) || 0)}
                       className="pl-9"
                       placeholder="0.00"
                     />
@@ -259,9 +287,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
                       min="0"
                       step="0.01"
                       value={formData.biweekly_price}
-                      onChange={(e) =>
-                        setFormData({ ...formData, biweekly_price: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => handleBiweeklyPriceChange(parseFloat(e.target.value) || 0)}
                       className="pl-9"
                       placeholder="0.00"
                     />
@@ -279,9 +305,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
                       min="0"
                       step="0.01"
                       value={formData.monthly_price}
-                      onChange={(e) =>
-                        setFormData({ ...formData, monthly_price: parseFloat(e.target.value) || 0 })
-                      }
+                      onChange={(e) => handleMonthlyPriceChange(parseFloat(e.target.value) || 0)}
                       className="pl-9"
                       placeholder="0.00"
                     />

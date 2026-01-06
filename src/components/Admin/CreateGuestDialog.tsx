@@ -166,8 +166,8 @@ export function CreateGuestDialog({ open, onOpenChange, onSuccess, editGuest }: 
             <div className="space-y-2">
               <Label htmlFor="date_of_birth">Data de Nascimento</Label>
               <Input
-                id="date_of_birth"
                 type="date"
+                id="date_of_birth"
                 value={formData.date_of_birth}
                 onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
               />
@@ -195,6 +195,32 @@ export function CreateGuestDialog({ open, onOpenChange, onSuccess, editGuest }: 
               />
             </div>
 
+            {/* Document Type */}
+            <div className="space-y-2">
+              <Label htmlFor="document_type">Tipo de Documento</Label>
+              <select
+                id="document_type"
+                value={formData.document_type}
+                onChange={(e) => setFormData({ ...formData, document_type: e.target.value })}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="passport">Passaporte</option>
+                <option value="id_card">Cartão de Cidadão</option>
+                <option value="drivers_license">Carta de Condução</option>
+              </select>
+            </div>
+
+            {/* Document Number */}
+            <div className="space-y-2">
+              <Label htmlFor="document_number">Número do Documento</Label>
+              <Input
+                id="document_number"
+                value={formData.document_number}
+                onChange={(e) => setFormData({ ...formData, document_number: e.target.value })}
+                placeholder="AB123456"
+              />
+            </div>
+
             {/* Address */}
             <div className="space-y-2 col-span-2">
               <Label htmlFor="address">Morada</Label>
@@ -202,7 +228,51 @@ export function CreateGuestDialog({ open, onOpenChange, onSuccess, editGuest }: 
                 id="address"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                placeholder="Rua das Flores, 123, 1150-055 Lisboa"
+                placeholder="Rua das Flores, 123"
+              />
+            </div>
+
+            {/* City */}
+            <div className="space-y-2">
+              <Label htmlFor="city">Cidade</Label>
+              <Input
+                id="city"
+                value={formData.city}
+                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                placeholder="Lisboa"
+              />
+            </div>
+
+            {/* Postal Code */}
+            <div className="space-y-2">
+              <Label htmlFor="postal_code">Código Postal</Label>
+              <Input
+                id="postal_code"
+                value={formData.postal_code}
+                onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+                placeholder="1150-055"
+              />
+            </div>
+
+            {/* Country */}
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="country">País</Label>
+              <Input
+                id="country"
+                value={formData.country}
+                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                placeholder="Portugal"
+              />
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="notes">Notas</Label>
+              <Input
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="Observações sobre o cliente..."
               />
             </div>
           </div>

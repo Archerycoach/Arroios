@@ -31,11 +31,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Edit2, Trash2, TrendingUp, DollarSign, Calendar } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, TrendingUp, DollarSign, Calendar, Download } from "lucide-react";
 import { expenseService } from "@/services/expenseService";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
+import { exportToExcel, expenseExportColumns } from "@/lib/exportUtils";
 
 interface ExpenseCategory {
   id: string;
@@ -52,6 +53,7 @@ export default function ExpensesPage() {
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [editingExpense, setEditingExpense] = useState<any>(null);
   const [editingCategory, setEditingCategory] = useState<ExpenseCategory | null>(null);
+  const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
   
   const [formData, setFormData] = useState({
     description: "",
@@ -67,13 +69,15 @@ export default function ExpensesPage() {
   useEffect(() => {
     loadExpenses();
     loadCategories();
-  }, []);
+  }, [period]);
 
   const loadExpenses = async () => {
     try {
       setLoading(true);
       const data = await expenseService.getAll();
-      setExpenses(data);
+      const cutoffDate = subMonths(new Date(), period);
+      const filteredData = data.filter((e: any) => new Date(e.date) >= cutoffDate);
+      setExpenses(filteredData);
     } catch (error) {
       console.error("Error loading expenses:", error);
     } finally {
@@ -182,6 +186,21 @@ export default function ExpensesPage() {
     });
   };
 
+  const handleExportToExcel = () => {
+    const exportData = filteredExpenses.map(expense => ({
+      date: expense.date,
+      description: expense.description,
+      category: categories.find(c => c.id === expense.category_id)?.name || "Sem Categoria",
+      supplier: expense.supplier || "-",
+      payment_method: expense.payment_method,
+      amount: expense.amount,
+      notes: expense.notes || "",
+    }));
+
+    const periodLabel = period === 1 ? "1mes" : period === 3 ? "3meses" : period === 6 ? "6meses" : "12meses";
+    exportToExcel(exportData, expenseExportColumns, `despesas_${periodLabel}`);
+  };
+
   const handleDeleteCategory = async (id: string) => {
     if (!confirm("Tem certeza que deseja eliminar esta categoria?")) return;
 
@@ -254,10 +273,27 @@ export default function ExpensesPage() {
                 Gestão de custos operacionais
               </p>
             </div>
-            <Button onClick={() => { resetForm(); setShowCreateDialog(true); }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Despesa
-            </Button>
+            <div className="flex gap-2">
+              <Select value={period.toString()} onValueChange={(v) => setPeriod(Number(v) as 1 | 3 | 6 | 12)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Último Mês</SelectItem>
+                  <SelectItem value="3">Últimos 3 Meses</SelectItem>
+                  <SelectItem value="6">Últimos 6 Meses</SelectItem>
+                  <SelectItem value="12">Últimos 12 Meses</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExportToExcel}>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar Excel
+              </Button>
+              <Button onClick={() => { resetForm(); setShowCreateDialog(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Despesa
+              </Button>
+            </div>
           </div>
 
           {/* Stats */}

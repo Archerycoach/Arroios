@@ -22,11 +22,19 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Calendar, MoreVertical, Search, Filter, Plus, Eye, CheckCircle, XCircle, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calendar, MoreVertical, Search, Filter, Plus, Eye, CheckCircle, XCircle, Trash2, Download } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { guestService } from "@/services/guestService";
 import { notificationService } from "@/services/notificationService";
-import { format } from "date-fns";
+import { exportToExcel, bookingExportColumns } from "@/lib/exportUtils";
+import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
 
 export default function BookingsPage() {
@@ -34,16 +42,19 @@ export default function BookingsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
 
   useEffect(() => {
     loadBookings();
-  }, []);
+  }, [period]);
 
   const loadBookings = async () => {
     try {
       setLoading(true);
       const data = await bookingService.getAll();
-      setBookings(data);
+      const cutoffDate = subMonths(new Date(), period);
+      const filteredData = data.filter((b: any) => new Date(b.created_at) >= cutoffDate);
+      setBookings(filteredData);
     } catch (error) {
       console.error("Error loading bookings:", error);
     } finally {
@@ -90,6 +101,26 @@ export default function BookingsPage() {
     }
   };
 
+  const handleExportToExcel = () => {
+    const exportData = filteredBookings.map(booking => ({
+      id: booking.id,
+      room_name: booking.rooms?.name || booking.rooms?.room_number || "N/A",
+      guest_name: booking.guests?.full_name || "N/A",
+      guest_email: booking.guests?.email || "",
+      guest_phone: booking.guests?.phone || "",
+      check_in: booking.check_in_date,
+      check_out: booking.check_out_date,
+      num_guests: booking.num_guests || 1,
+      total_price: booking.total_amount,
+      status: booking.status,
+      payment_method: booking.payment_method || "",
+      notes: booking.special_requests || "",
+      created_at: booking.created_at,
+    }));
+
+    exportToExcel(exportData, bookingExportColumns, "reservas");
+  };
+
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { variant: any; label: string }> = {
       pending: { variant: "secondary", label: "Pendente" },
@@ -134,10 +165,27 @@ export default function BookingsPage() {
                 Gestão de todas as reservas
               </p>
             </div>
-            <Button onClick={() => setShowCreateDialog(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Reserva
-            </Button>
+            <div className="flex gap-2">
+              <Select value={period.toString()} onValueChange={(v) => setPeriod(Number(v) as 1 | 3 | 6 | 12)}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Último Mês</SelectItem>
+                  <SelectItem value="3">Últimos 3 Meses</SelectItem>
+                  <SelectItem value="6">Últimos 6 Meses</SelectItem>
+                  <SelectItem value="12">Últimos 12 Meses</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button variant="outline" onClick={handleExportToExcel}>
+                <Download className="h-4 w-4 mr-2" />
+                Exportar Excel
+              </Button>
+              <Button onClick={() => setShowCreateDialog(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Reserva
+              </Button>
+            </div>
           </div>
 
           {/* Filters */}

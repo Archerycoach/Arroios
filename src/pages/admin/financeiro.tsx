@@ -18,11 +18,11 @@ import {
 } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { expenseService } from "@/services/expenseService";
-import { format } from "date-fns";
+import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
 
 export default function FinanceiroPage() {
-  const [period, setPeriod] = useState<"week" | "month" | "year">("month");
+  const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
   const [revenue, setRevenue] = useState(0);
   const [expenses, setExpenses] = useState(0);
   const [profit, setProfit] = useState(0);
@@ -36,15 +36,21 @@ export default function FinanceiroPage() {
   const loadFinancialData = async () => {
     try {
       setLoading(true);
+      const cutoffDate = subMonths(new Date(), period);
       
       // Load bookings for revenue
       const bookings = await bookingService.getAll();
-      const paidBookings = bookings.filter(b => b.status === "paid" || b.status === "completed");
+      const paidBookings = bookings.filter(b => {
+        const isValidStatus = b.status === "paid" || b.status === "completed";
+        const isInPeriod = new Date(b.created_at) >= cutoffDate;
+        return isValidStatus && isInPeriod;
+      });
       const totalRevenue = paidBookings.reduce((sum, b) => sum + b.total_amount, 0);
       
       // Load expenses
       const expensesData = await expenseService.getAll();
-      const totalExpenses = expensesData.reduce((sum, e) => sum + e.amount, 0);
+      const filteredExpenses = expensesData.filter((e: any) => new Date(e.date) >= cutoffDate);
+      const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
       
       setRevenue(totalRevenue);
       setExpenses(totalExpenses);
@@ -60,13 +66,13 @@ export default function FinanceiroPage() {
           date: b.created_at,
           status: b.status,
         })),
-        ...expensesData.map(e => ({
+        ...filteredExpenses.map(e => ({
           id: e.id,
           type: "expense" as const,
           description: e.description,
           amount: -e.amount,
           date: e.date,
-          category: (e as any).category || "Despesa", // Temporary cast if type missing
+          category: (e as any).category || "Despesa",
         })),
       ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       
@@ -109,14 +115,15 @@ export default function FinanceiroPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
+            <Select value={period.toString()} onValueChange={(v) => setPeriod(Number(v) as 1 | 3 | 6 | 12)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="week">Esta Semana</SelectItem>
-                <SelectItem value="month">Este Mês</SelectItem>
-                <SelectItem value="year">Este Ano</SelectItem>
+                <SelectItem value="1">Último Mês</SelectItem>
+                <SelectItem value="3">Últimos 3 Meses</SelectItem>
+                <SelectItem value="6">Últimos 6 Meses</SelectItem>
+                <SelectItem value="12">Últimos 12 Meses</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" size="sm">
