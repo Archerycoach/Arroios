@@ -56,21 +56,26 @@ export type RentalType = "nightly" | "biweekly" | "short_term" | "long_term";
 // Room interface matching actual database schema
 export interface Room {
   id: string;
-  property_id?: string;
-  room_number?: string;
   name: string;
+  room_type: string; // DB column
+  type?: string; // Optional alias for backward compatibility
+  room_number: string;
   description?: string;
-  room_type: RoomType;
-  base_price: number;
-  max_guests: number;
-  amenities: string[];
-  images: string[];
-  is_available: boolean;
-  rental_type: RentalType;
+  max_guests: number; // DB column
+  capacity?: number; // Optional alias for backward compatibility
+  floor: number;
+  monthly_price: number;
+  biweekly_price?: number;
+  base_price?: number;
+  daily_price?: number;
+  amenities?: string[];
+  images?: string[];
+  is_available: boolean; // DB column
+  available?: boolean; // Optional alias for backward compatibility
+  rental_type?: RentalType;
   minimum_nights?: number;
-  floor?: number;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Guest {

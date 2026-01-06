@@ -165,6 +165,7 @@ export type Database = {
           cleaning_fee: number | null
           created_at: string | null
           created_by: string | null
+          custom_price: number | null
           extras_total: number | null
           guest_id: string
           id: string
@@ -172,6 +173,7 @@ export type Database = {
           num_nights: number
           payment_method: string | null
           payment_status: string | null
+          payment_type: string | null
           room_id: string
           room_price: number
           special_notes: string | null
@@ -192,6 +194,7 @@ export type Database = {
           cleaning_fee?: number | null
           created_at?: string | null
           created_by?: string | null
+          custom_price?: number | null
           extras_total?: number | null
           guest_id: string
           id?: string
@@ -199,6 +202,7 @@ export type Database = {
           num_nights: number
           payment_method?: string | null
           payment_status?: string | null
+          payment_type?: string | null
           room_id: string
           room_price: number
           special_notes?: string | null
@@ -219,6 +223,7 @@ export type Database = {
           cleaning_fee?: number | null
           created_at?: string | null
           created_by?: string | null
+          custom_price?: number | null
           extras_total?: number | null
           guest_id?: string
           id?: string
@@ -226,6 +231,7 @@ export type Database = {
           num_nights?: number
           payment_method?: string | null
           payment_status?: string | null
+          payment_type?: string | null
           room_id?: string
           room_price?: number
           special_notes?: string | null

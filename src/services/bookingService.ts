@@ -227,95 +227,75 @@ export const bookingService = {
 
   // Calculate best price based on duration
   calculateBestPrice(
-    room: { daily_price: number; biweekly_price?: number | null; monthly_price?: number | null; base_price?: number },
+    room: { monthly_price: number; biweekly_price?: number | null; base_price?: number },
     nights: number
-  ): { totalPrice: number; priceType: "daily" | "biweekly" | "monthly" | "mixed"; breakdown: string } {
-    // Derive missing prices from available ones
-    let dailyPrice = room.daily_price || room.base_price || 0;
-    let biweeklyPrice = room.biweekly_price || null;
-    let monthlyPrice = room.monthly_price || null;
+  ): { totalPrice: number; priceType: "biweekly" | "monthly" | "mixed"; breakdown: string } {
+    const monthlyPrice = room.monthly_price || room.base_price || 0;
+    const biweeklyPrice = room.biweekly_price || (monthlyPrice / 2);
 
-    // If daily price is 0 but other prices exist, calculate it
-    if (!dailyPrice) {
-      if (biweeklyPrice && biweeklyPrice > 0) {
-        dailyPrice = biweeklyPrice / 15;
-      } else if (monthlyPrice && monthlyPrice > 0) {
-        dailyPrice = monthlyPrice / 30;
-      }
+    if (monthlyPrice === 0) {
+      throw new Error("Preço mensal não definido para este quarto");
     }
 
-    // Calculate derived prices if not provided
-    if (!biweeklyPrice || biweeklyPrice === 0) {
-      biweeklyPrice = dailyPrice * 15;
-    }
-    if (!monthlyPrice || monthlyPrice === 0) {
-      monthlyPrice = dailyPrice * 30;
-    }
-
-    // For stays less than 15 days, use daily price
+    // For stays less than 15 days, use proportional biweekly price
     if (nights < 15) {
+      const dailyRate = biweeklyPrice / 15;
+      const totalPrice = dailyRate * nights;
       return {
-        totalPrice: dailyPrice * nights,
-        priceType: "daily",
-        breakdown: `${nights} noite${nights !== 1 ? 's' : ''} × €${dailyPrice.toFixed(2)}`,
+        totalPrice,
+        priceType: "biweekly",
+        breakdown: `${nights} dia${nights !== 1 ? 's' : ''} × €${dailyRate.toFixed(2)} (baseado quinzenal)`,
       };
     }
 
-    // For stays 15-29 days
+    // For stays 15-29 days, use biweekly rate
     if (nights >= 15 && nights < 30) {
-      const dailyTotal = dailyPrice * nights;
-      const biweeklyTotal = biweeklyPrice;
-
-      // Use biweekly if it's cheaper
-      if (biweeklyTotal < dailyTotal) {
-        return {
-          totalPrice: biweeklyTotal,
-          priceType: "biweekly",
-          breakdown: `15 dias × €${biweeklyPrice.toFixed(2)}`,
-        };
-      }
-
       return {
-        totalPrice: dailyTotal,
-        priceType: "daily",
-        breakdown: `${nights} noite${nights !== 1 ? 's' : ''} × €${dailyPrice.toFixed(2)}`,
+        totalPrice: biweeklyPrice,
+        priceType: "biweekly",
+        breakdown: `15 dias (quinzenal) × €${biweeklyPrice.toFixed(2)}`,
       };
     }
 
-    // For stays 30+ days
+    // For stays 30+ days, use monthly rate + proportional for remaining days
     const fullMonths = Math.floor(nights / 30);
     const remainingDays = nights % 30;
 
     const monthlyTotal = monthlyPrice * fullMonths;
-    const remainingTotal = remainingDays * dailyPrice;
-    const totalWithMonthly = monthlyTotal + remainingTotal;
-
-    const dailyTotal = dailyPrice * nights;
-
-    // Compare monthly rate vs daily rate
-    if (totalWithMonthly < dailyTotal) {
-      let breakdown = `${fullMonths} mês${fullMonths !== 1 ? 'es' : ''} × €${monthlyPrice.toFixed(2)}`;
-      if (remainingDays > 0) {
-        breakdown += ` + ${remainingDays} dia${remainingDays !== 1 ? 's' : ''} × €${dailyPrice.toFixed(2)}`;
+    
+    let remainingTotal = 0;
+    let remainingBreakdown = "";
+    
+    if (remainingDays > 0) {
+      if (remainingDays >= 15) {
+        // Use biweekly rate for remaining days >= 15
+        remainingTotal = biweeklyPrice;
+        remainingBreakdown = ` + 15 dias (quinzenal) × €${biweeklyPrice.toFixed(2)}`;
+      } else {
+        // Use proportional biweekly rate for remaining days < 15
+        const dailyRate = biweeklyPrice / 15;
+        remainingTotal = dailyRate * remainingDays;
+        remainingBreakdown = ` + ${remainingDays} dia${remainingDays !== 1 ? 's' : ''} × €${dailyRate.toFixed(2)}`;
       }
+    }
 
-      return {
-        totalPrice: totalWithMonthly,
-        priceType: fullMonths > 0 && remainingDays > 0 ? "mixed" : "monthly",
-        breakdown,
-      };
+    const totalPrice = monthlyTotal + remainingTotal;
+
+    let breakdown = `${fullMonths} mês${fullMonths !== 1 ? 'es' : ''} × €${monthlyPrice.toFixed(2)}`;
+    if (remainingBreakdown) {
+      breakdown += remainingBreakdown;
     }
 
     return {
-      totalPrice: dailyTotal,
-      priceType: "daily",
-      breakdown: `${nights} noite${nights !== 1 ? 's' : ''} × €${dailyPrice.toFixed(2)}`,
+      totalPrice,
+      priceType: fullMonths > 0 && remainingDays > 0 ? "mixed" : "monthly",
+      breakdown,
     };
   },
 
   // Calculate booking totals with intelligent pricing
   calculateTotals(
-    room: { daily_price: number; biweekly_price?: number | null; monthly_price?: number | null; base_price?: number },
+    room: { monthly_price: number; biweekly_price?: number | null; base_price?: number },
     nights: number,
     addOns: { price: number; quantity: number }[] = []
   ): {

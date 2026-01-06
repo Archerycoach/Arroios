@@ -10,6 +10,21 @@ import { propertyService } from "@/services/propertyService";
 import { Euro } from "lucide-react";
 import { RoomType } from "@/types";
 
+interface CreateRoomFormData {
+  name: string;
+  room_number: string;
+  room_type: RoomType;
+  description: string;
+  max_guests: number;
+  monthly_price: number;
+  biweekly_price: number;
+  daily_price: number;
+  floor: number;
+  is_available: boolean;
+  amenities: string[];
+  images: string[];
+}
+
 interface CreateRoomDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -19,18 +34,19 @@ interface CreateRoomDialogProps {
 
 export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: CreateRoomDialogProps) {
   const [propertyId, setPropertyId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    room_number: "",
+  const [formData, setFormData] = useState<CreateRoomFormData>({
     name: "",
+    room_number: "",
+    room_type: "Standard",
     description: "",
-    room_type: "Standard" as RoomType,
-    daily_price: 0,
-    biweekly_price: 0,
-    monthly_price: 0,
     max_guests: 1,
+    monthly_price: 0,
+    biweekly_price: 0,
+    daily_price: 0,
     floor: 0,
     is_available: true,
-    amenities: [] as string[],
+    amenities: [],
+    images: [],
   });
 
   // Fetch property_id on mount
@@ -68,6 +84,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         floor: editRoom.floor || 0,
         is_available: editRoom.is_available,
         amenities: editRoom.amenities || [],
+        images: editRoom.images || [],
       });
     } else {
       setFormData({
@@ -82,6 +99,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         floor: 0,
         is_available: true,
         amenities: [],
+        images: [],
       });
     }
   }, [editRoom, open]);
@@ -99,6 +117,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
       is_available: true,
       amenities: [],
       description: "",
+      images: [],
     });
   };
 
@@ -131,6 +150,16 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
       monthly_price: value,
     });
   };
+
+  // Auto-calculate biweekly price (always half of monthly)
+  useEffect(() => {
+    if (formData.monthly_price > 0) {
+      setFormData((prev) => ({
+        ...prev,
+        biweekly_price: prev.monthly_price / 2,
+      }));
+    }
+  }, [formData.monthly_price]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,67 +280,38 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
               </div>
             </div>
 
-            {/* Pricing Section */}
+            {/* Pricing - Monthly is primary, biweekly is auto-calculated */}
             <div className="space-y-4">
-              <Label className="text-base font-semibold">Preços *</Label>
-              <p className="text-sm text-muted-foreground">
-                Defina pelo menos um tipo de preço. Os restantes serão calculados automaticamente se não forem preenchidos.
-              </p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label htmlFor="daily_price">Preço Diário</Label>
-                  <div className="relative">
-                    <Euro className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="daily_price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.daily_price}
-                      onChange={(e) => handleDailyPriceChange(parseFloat(e.target.value) || 0)}
-                      className="pl-9"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">Por noite</p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="monthly_price">Preço Mensal (€) *</Label>
+                <Input
+                  id="monthly_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.monthly_price}
+                  onChange={(e) =>
+                    setFormData({ ...formData, monthly_price: parseFloat(e.target.value) || 0 })
+                  }
+                  required
+                />
+                <p className="text-sm text-muted-foreground">Preço base para estadia de 30 dias</p>
+              </div>
 
-                <div>
-                  <Label htmlFor="biweekly_price">Preço Quinzenal</Label>
-                  <div className="relative">
-                    <Euro className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="biweekly_price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.biweekly_price}
-                      onChange={(e) => handleBiweeklyPriceChange(parseFloat(e.target.value) || 0)}
-                      className="pl-9"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">15 dias</p>
-                </div>
-
-                <div>
-                  <Label htmlFor="monthly_price">Preço Mensal</Label>
-                  <div className="relative">
-                    <Euro className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="monthly_price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={formData.monthly_price}
-                      onChange={(e) => handleMonthlyPriceChange(parseFloat(e.target.value) || 0)}
-                      className="pl-9"
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1">30 dias</p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="biweekly_price">Preço Quinzenal (€)</Label>
+                <Input
+                  id="biweekly_price"
+                  type="number"
+                  step="0.01"
+                  value={formData.biweekly_price}
+                  readOnly
+                  disabled
+                  className="bg-muted"
+                />
+                <p className="text-sm text-muted-foreground">
+                  Calculado automaticamente: metade do preço mensal (€{(formData.monthly_price / 2).toFixed(2)})
+                </p>
               </div>
             </div>
 
