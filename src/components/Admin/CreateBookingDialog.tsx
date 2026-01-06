@@ -34,8 +34,8 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     room_id: "",
     check_in_date: "",
     check_out_date: "",
-    payment_type: "daily" as PaymentType,
     custom_price: "",
+    pricing_mode: "monthly" as "monthly" | "biweekly" | "manual",
     status: "confirmed" as const,
     special_requests: "",
   });
@@ -66,15 +66,34 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     }
   }, [formData.room_id, formData.check_in_date, formData.check_out_date]);
 
-  // Calculate price when room, dates, or payment type changes
+  // Calculate price when room, dates, or pricing mode change
   useEffect(() => {
-    if (formData.room_id && formData.check_in_date && formData.check_out_date) {
-      const calculatedPrice = calculatePrice();
-      if (calculatedPrice > 0 && !formData.custom_price) {
-        setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
+    if (formData.room_id && formData.check_in_date && formData.check_out_date && formData.pricing_mode !== "manual") {
+      const selectedRoom = rooms.find(r => r.id === formData.room_id);
+      if (!selectedRoom) return;
+
+      const checkIn = new Date(formData.check_in_date);
+      const checkOut = new Date(formData.check_out_date);
+      const days = differenceInDays(checkOut, checkIn);
+
+      if (days <= 0) return;
+
+      let calculatedPrice = 0;
+      
+      if (formData.pricing_mode === "monthly") {
+        // Count only complete months
+        const mesesCompletos = Math.floor(days / 30);
+        calculatedPrice = mesesCompletos * selectedRoom.monthly_price;
+      } else if (formData.pricing_mode === "biweekly") {
+        // Count only complete biweekly periods
+        const biweeklyPrice = selectedRoom.monthly_price / 2;
+        const quinzenasCompletas = Math.floor(days / 15);
+        calculatedPrice = quinzenasCompletas * biweeklyPrice;
       }
+
+      setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
     }
-  }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.payment_type]);
+  }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.pricing_mode, rooms]);
 
   const loadData = async () => {
     try {
@@ -135,33 +154,39 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     }
   };
 
-  const calculatePrice = (): number => {
+  const calculatePrice = (): { total: number; breakdown: string; priceType: string } => {
     const selectedRoom = rooms.find(r => r.id === formData.room_id);
-    if (!selectedRoom || !formData.check_in_date || !formData.check_out_date) return 0;
+    if (!selectedRoom || !formData.check_in_date || !formData.check_out_date) {
+      return { total: 0, breakdown: "", priceType: "" };
+    }
 
     const checkIn = new Date(formData.check_in_date);
     const checkOut = new Date(formData.check_out_date);
     const days = differenceInDays(checkOut, checkIn);
 
-    switch (formData.payment_type) {
-      case "daily":
-        return selectedRoom.base_price * days;
-      case "biweekly":
-        const biweeks = Math.ceil(days / 14);
-        return selectedRoom.base_price * 14 * biweeks;
-      case "monthly":
-        const months = Math.ceil(days / 30);
-        return selectedRoom.base_price * 30 * months;
-      default:
-        return selectedRoom.base_price * days;
+    if (days <= 0) {
+      return { total: 0, breakdown: "", priceType: "" };
     }
+
+    const result = bookingService.calculateBestPrice(selectedRoom, days);
+    return {
+      total: result.totalPrice,
+      breakdown: result.breakdown,
+      priceType: result.priceType,
+    };
   };
 
   const handleRecalculate = () => {
-    const calculatedPrice = calculatePrice();
-    if (calculatedPrice > 0) {
-      setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
+    const { total } = calculatePrice();
+    if (total > 0) {
+      setFormData(prev => ({ ...prev, custom_price: total.toFixed(2) }));
     }
+  };
+
+  const getPaymentType = (days: number): PaymentType => {
+    if (days >= 30) return "monthly";
+    if (days >= 15) return "biweekly";
+    return "daily";
   };
 
   const handleCreateGuest = async () => {
@@ -227,6 +252,17 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       );
 
       const totalAmount = parseFloat(formData.custom_price);
+      
+      // Determine payment_type based on selected pricing mode
+      let paymentType: PaymentType;
+      if (formData.pricing_mode === "monthly") {
+        paymentType = "monthly";
+      } else if (formData.pricing_mode === "biweekly") {
+        paymentType = "biweekly";
+      } else {
+        // For manual, determine based on duration
+        paymentType = getPaymentType(nights);
+      }
 
       const userResponse = await supabase.auth.getUser();
       const userId = userResponse.data.user?.id;
@@ -238,10 +274,10 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
         check_out_date: checkOut.toISOString(),
         booking_number: `BK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
         status: "pending" as const,
-        room_price: selectedRoom?.base_price || 0,
+        room_price: selectedRoom?.monthly_price || 0,
         total_amount: totalAmount,
         num_nights: nights,
-        payment_type: formData.payment_type,
+        payment_type: paymentType,
         custom_price: totalAmount,
         special_requests: formData.special_requests || "",
         user_id: userId,
@@ -265,8 +301,8 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       guest_id: "",
       check_in_date: "",
       check_out_date: "",
-      payment_type: "daily",
       custom_price: "",
+      pricing_mode: "monthly",
       status: "confirmed",
       special_requests: "",
     });
@@ -277,31 +313,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
   const days = formData.check_out_date && formData.check_in_date
     ? differenceInDays(new Date(formData.check_out_date), new Date(formData.check_in_date))
     : 0;
-  const calculatedPrice = calculatePrice();
-  const finalPrice = formData.custom_price ? parseFloat(formData.custom_price) : calculatedPrice;
-
-  const getPaymentTypeLabel = (type: PaymentType) => {
-    switch (type) {
-      case "daily": return "Diária";
-      case "biweekly": return "Quinzenal";
-      case "monthly": return "Mensal";
-    }
-  };
-
-  const getPeriodInfo = () => {
-    if (!selectedRoom || days <= 0) return null;
-    
-    switch (formData.payment_type) {
-      case "daily":
-        return `${days} dias × €${selectedRoom.base_price}/dia`;
-      case "biweekly":
-        const biweeks = Math.ceil(days / 14);
-        return `${biweeks} quinzena(s) × €${(selectedRoom.base_price * 14).toFixed(2)}/quinzena (${days} dias)`;
-      case "monthly":
-        const months = Math.ceil(days / 30);
-        return `${months} mês(es) × €${(selectedRoom.base_price * 30).toFixed(2)}/mês (${days} dias)`;
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -464,58 +475,103 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
             </Alert>
           )}
 
-          {/* Payment Type Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="payment_type">
-              Tipo de Cobrança <span className="text-destructive">*</span>
-            </Label>
-            <Select 
-              value={formData.payment_type} 
-              onValueChange={(value: PaymentType) => setFormData({ ...formData, payment_type: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="daily">Diária (por dia)</SelectItem>
-                <SelectItem value="biweekly">Quinzenal (14 dias)</SelectItem>
-                <SelectItem value="monthly">Mensal (30 dias)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Price Section - Always visible when room is selected */}
+          {selectedRoom && (
+            <div className="rounded-lg border bg-muted/50 p-4 space-y-4">
+              {/* Pricing Mode Selection */}
+              <div className="space-y-3">
+                <Label>Tipo de Cobrança</Label>
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="pricing_mode"
+                      value="monthly"
+                      checked={formData.pricing_mode === "monthly"}
+                      onChange={(e) => setFormData({ ...formData, pricing_mode: "monthly" })}
+                      className="w-4 h-4"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium">Mensal</div>
+                      <div className="text-sm text-muted-foreground">
+                        Baseado em €{selectedRoom.monthly_price.toFixed(2)}/mês (€{(selectedRoom.monthly_price / 30).toFixed(2)}/dia)
+                      </div>
+                    </div>
+                  </label>
 
-          {/* Price Calculation */}
-          {selectedRoom && days > 0 && (
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium">Tipo de Cobrança</div>
-                  <div className="text-sm text-muted-foreground">{getPaymentTypeLabel(formData.payment_type)}</div>
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="pricing_mode"
+                      value="biweekly"
+                      checked={formData.pricing_mode === "biweekly"}
+                      onChange={(e) => setFormData({ ...formData, pricing_mode: "biweekly" })}
+                      className="w-4 h-4"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium">Quinzenal</div>
+                      <div className="text-sm text-muted-foreground">
+                        Baseado em €{(selectedRoom.monthly_price / 2).toFixed(2)}/quinzena (€{(selectedRoom.monthly_price / 60).toFixed(2)}/dia)
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center space-x-3 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="pricing_mode"
+                      value="manual"
+                      checked={formData.pricing_mode === "manual"}
+                      onChange={(e) => setFormData({ ...formData, pricing_mode: "manual" })}
+                      className="w-4 h-4"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium">Valor Manual</div>
+                      <div className="text-sm text-muted-foreground">
+                        Definir valor personalizado para esta reserva
+                      </div>
+                    </div>
+                  </label>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRecalculate}
-                >
-                  <Calculator className="h-4 w-4 mr-2" />
-                  Recalcular
-                </Button>
               </div>
 
-              <div className="space-y-2 pt-2 border-t">
-                <div className="text-sm text-muted-foreground">
-                  {getPeriodInfo()}
+              {/* Price Breakdown (only for monthly/biweekly with dates) */}
+              {formData.pricing_mode !== "manual" && days > 0 && (
+                <div className="pt-3 border-t space-y-2">
+                  <div className="text-sm text-muted-foreground">
+                    Duração: {days} dia{days !== 1 ? 's' : ''}
+                  </div>
+                  {formData.pricing_mode === "monthly" && (() => {
+                    const mesesCompletos = Math.floor(days / 30);
+                    return (
+                      <div className="text-sm">
+                        • {days} dias ÷ 30 = {mesesCompletos} meses completos
+                        <br />
+                        • {mesesCompletos} meses × €{selectedRoom.monthly_price.toFixed(2)} = €{(mesesCompletos * selectedRoom.monthly_price).toFixed(2)}
+                      </div>
+                    );
+                  })()}
+                  {formData.pricing_mode === "biweekly" && (() => {
+                    const quinzenasCompletas = Math.floor(days / 15);
+                    const biweeklyPrice = selectedRoom.monthly_price / 2;
+                    return (
+                      <div className="text-sm">
+                        • {days} dias ÷ 15 = {quinzenasCompletas} quinzenas completas
+                        <br />
+                        • {quinzenasCompletas} quinzenas × €{biweeklyPrice.toFixed(2)} = €{(quinzenasCompletas * biweeklyPrice).toFixed(2)}
+                      </div>
+                    );
+                  })()}
                 </div>
-                <div className="text-sm font-medium">
-                  Valor Calculado: €{calculatedPrice.toFixed(2)}
-                </div>
-              </div>
+              )}
 
-              <div className="space-y-2 pt-2 border-t">
+              {/* Final Price Input */}
+              <div className="space-y-2 pt-3 border-t">
                 <Label htmlFor="custom_price">
                   Valor Final <span className="text-destructive">*</span>
-                  <span className="text-xs text-muted-foreground ml-2">(ajustável)</span>
+                  {formData.pricing_mode !== "manual" && (
+                    <span className="text-xs text-muted-foreground ml-2">(ajustável)</span>
+                  )}
                 </Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
@@ -533,14 +589,34 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                 </div>
               </div>
 
-              {formData.custom_price && parseFloat(formData.custom_price) !== calculatedPrice && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    Valor ajustado manualmente (diferença: €{(parseFloat(formData.custom_price) - calculatedPrice).toFixed(2)})
-                  </AlertDescription>
-                </Alert>
-              )}
+              {/* Manual adjustment warning */}
+              {formData.pricing_mode !== "manual" && formData.custom_price && days > 0 && (() => {
+                const currentValue = parseFloat(formData.custom_price);
+                let expectedValue = 0;
+                
+                if (formData.pricing_mode === "monthly") {
+                  const mesesCompletos = Math.floor(days / 30);
+                  expectedValue = mesesCompletos * selectedRoom.monthly_price;
+                } else if (formData.pricing_mode === "biweekly") {
+                  const biweeklyPrice = selectedRoom.monthly_price / 2;
+                  const quinzenasCompletas = Math.floor(days / 15);
+                  expectedValue = quinzenasCompletas * biweeklyPrice;
+                }
+                
+                const difference = currentValue - expectedValue;
+                
+                if (Math.abs(difference) > 0.01) {
+                  return (
+                    <Alert>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        Valor ajustado manualmente ({difference > 0 ? '+' : ''}€{difference.toFixed(2)})
+                      </AlertDescription>
+                    </Alert>
+                  );
+                }
+                return null;
+              })()}
             </div>
           )}
 
