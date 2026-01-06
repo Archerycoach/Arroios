@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -12,6 +13,7 @@ import { Room, Guest, PaymentType } from "@/types";
 import { roomService } from "@/services/roomService";
 import { guestService } from "@/services/guestService";
 import { bookingService, BookingWithDetails } from "@/services/bookingService";
+import { paymentService } from "@/services/paymentService";
 import { supabase } from "@/integrations/supabase/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -22,6 +24,7 @@ interface CreateBookingDialogProps {
 }
 
 export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBookingDialogProps) {
+  const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
   const [allBookings, setAllBookings] = useState<BookingWithDetails[]>([]);
@@ -283,13 +286,45 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
         user_id: userId,
       };
 
-      await bookingService.create(bookingData);
-      onSuccess();
-      onOpenChange(false);
-      resetForm();
+      const createdBooking = await bookingService.create(bookingData);
+
+      if (createdBooking) {
+        toast({
+          title: "Reserva criada",
+          description: "A reserva foi criada com sucesso.",
+        });
+
+        // Generate monthly payments + security deposit
+        if (createdBooking.id) {
+          // Calculate number of months for payment generation
+          // If less than 1 month, treat as 1 month (single payment)
+          const calculatedMonths = Math.floor(days / 30);
+          const numberOfInstallments = calculatedMonths > 0 ? calculatedMonths : 1;
+          
+          // Monthly amount is total divided by number of installments
+          const monthlyAmount = totalAmount / numberOfInstallments;
+
+          await paymentService.generatePaymentsForBooking(
+            createdBooking.id,
+            monthlyAmount,
+            numberOfInstallments,
+            formData.check_in_date
+          );
+        }
+
+        onSuccess();
+        onOpenChange(false);
+        resetForm();
+      } else {
+        throw new Error("Falha ao criar reserva");
+      }
     } catch (error) {
       console.error("Error creating booking:", error);
-      alert("Erro ao criar reserva");
+      toast({
+        variant: "destructive",
+        title: "Erro",
+        description: "Erro ao criar reserva. Tente novamente."
+      });
     } finally {
       setLoading(false);
     }

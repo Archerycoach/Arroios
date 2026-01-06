@@ -19,7 +19,8 @@ import {
   DollarSign,
   Palette,
   Type,
-  ExternalLink
+  ExternalLink,
+  Download
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -47,6 +48,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
     { name: "Reservas", href: "/admin/bookings", icon: CalendarCheck, adminOnly: false },
     { name: "Quartos", href: "/admin/rooms", icon: BedDouble, adminOnly: false },
     { name: "Receitas", href: "/admin/receitas", icon: TrendingUp, adminOnly: false },
+    { name: "Exportar Pagamentos", href: "/admin/exportar-pagamentos", icon: Download, adminOnly: false },
     { name: "Despesas", href: "/admin/expenses", icon: Wallet, adminOnly: false },
     { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign, adminOnly: true },
     { name: "Relatórios", href: "/admin/relatorios", icon: TrendingUp, adminOnly: true },

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { CreateBookingDialog } from "@/components/Admin/CreateBookingDialog";
 import { ProtectedAdminPage } from "@/components/Admin/ProtectedAdminPage";
+import { BookingPaymentsList } from "@/components/Admin/BookingPaymentsList";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Calendar, MoreVertical, Search, Filter, Plus, Eye, CheckCircle, XCircle, Trash2, Download } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { guestService } from "@/services/guestService";
@@ -42,6 +50,8 @@ export default function BookingsPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<any | null>(null);
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
 
   useEffect(() => {
@@ -99,6 +109,11 @@ export default function BookingsPage() {
       console.error("Error deleting booking:", error);
       alert("Erro ao eliminar reserva");
     }
+  };
+
+  const handleViewDetails = (booking: any) => {
+    setSelectedBooking(booking);
+    setShowDetailsDialog(true);
   };
 
   const handleExportToExcel = () => {
@@ -262,7 +277,7 @@ export default function BookingsPage() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuLabel>Ações</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleViewDetails(booking)}>
                               <Eye className="h-4 w-4 mr-2" />
                               Ver Detalhes
                             </DropdownMenuItem>
@@ -310,6 +325,82 @@ export default function BookingsPage() {
             onOpenChange={setShowCreateDialog}
             onSuccess={loadBookings}
           />
+
+          {/* Booking Details Dialog with Payments */}
+          <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Detalhes da Reserva</DialogTitle>
+                <DialogDescription>
+                  Informações completas e gestão de pagamentos
+                </DialogDescription>
+              </DialogHeader>
+
+              {selectedBooking && (
+                <div className="space-y-6">
+                  {/* Booking Info */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Informações da Reserva</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-muted-foreground">ID da Reserva</p>
+                        <p className="font-mono text-sm">{selectedBooking.id}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Status</p>
+                        {getStatusBadge(selectedBooking.status)}
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Quarto</p>
+                        <p className="font-medium">
+                          {selectedBooking.rooms?.room_number || selectedBooking.rooms?.name || "N/A"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Hóspede</p>
+                        <p className="font-medium">{selectedBooking.guests?.full_name || "N/A"}</p>
+                        <p className="text-sm text-muted-foreground">{selectedBooking.guests?.email || ""}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Check-in</p>
+                        <p className="font-medium">
+                          {format(new Date(selectedBooking.check_in_date), "dd MMM yyyy", { locale: pt })}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Check-out</p>
+                        <p className="font-medium">
+                          {format(new Date(selectedBooking.check_out_date), "dd MMM yyyy", { locale: pt })}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Número de Hóspedes</p>
+                        <p className="font-medium">{selectedBooking.num_guests || 1}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Valor Total</p>
+                        <p className="font-semibold text-lg">€{selectedBooking.total_amount.toFixed(2)}</p>
+                      </div>
+                      {selectedBooking.special_requests && (
+                        <div className="col-span-2">
+                          <p className="text-sm text-muted-foreground">Pedidos Especiais</p>
+                          <p className="text-sm">{selectedBooking.special_requests}</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Payments List */}
+                  <BookingPaymentsList 
+                    bookingId={selectedBooking.id} 
+                    onPaymentUpdate={loadBookings}
+                  />
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </AdminLayout>
     </ProtectedAdminPage>
