@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,7 @@ import { MarkPaymentPaidDialog } from "./MarkPaymentPaidDialog";
 import { RefundDepositDialog } from "./RefundDepositDialog";
 import * as XLSX from "xlsx";
 
-type BookingPayment = Database["public"]["Tables"]["booking_payments"]["Row"];
+type Payment = Database["public"]["Tables"]["payments"]["Row"];
 
 interface BookingPaymentsListProps {
   bookingId: string;
@@ -17,60 +17,107 @@ interface BookingPaymentsListProps {
 }
 
 export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPaymentsListProps) {
-  const [payments, setPayments] = useState<BookingPayment[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPayment, setSelectedPayment] = useState<BookingPayment | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showMarkPaidDialog, setShowMarkPaidDialog] = useState(false);
   const [showRefundDialog, setShowRefundDialog] = useState(false);
   const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, depositStatus: null as string | null });
 
-  const loadPayments = async () => {
-    setLoading(true);
-    const data = await paymentService.getBookingPayments(bookingId);
-    const statistics = await paymentService.getPaymentStats(bookingId);
-    setPayments(data);
-    setStats(statistics);
-    setLoading(false);
-  };
+  // ✅ Refs para evitar memory leaks
+  const isMountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    loadPayments();
+  // ✅ Função de carregamento estável
+  const loadPayments = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    abortControllerRef.current = new AbortController();
+
+    try {
+      setLoading(true);
+      const data = await paymentService.getBookingPayments(bookingId);
+      const statistics = await paymentService.getPaymentStats(bookingId);
+
+      if (isMountedRef.current) {
+        setPayments(data);
+        setStats(statistics);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+      console.error("Error loading payments:", error);
+    } finally {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }
   }, [bookingId]);
 
-  const handlePaymentMarkedPaid = () => {
+  useEffect(() => {
+    isMountedRef.current = true;
+    loadPayments();
+
+    return () => {
+      isMountedRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [loadPayments]);
+
+  const handlePaymentMarkedPaid = useCallback(() => {
+    if (!isMountedRef.current) return;
+
     loadPayments();
     setShowMarkPaidDialog(false);
     setSelectedPayment(null);
     onPaymentUpdate?.();
-  };
+  }, [loadPayments, onPaymentUpdate]);
 
-  const handleDepositRefunded = () => {
+  const handleDepositRefunded = useCallback(() => {
+    if (!isMountedRef.current) return;
+
     loadPayments();
     setShowRefundDialog(false);
     onPaymentUpdate?.();
-  };
+  }, [loadPayments, onPaymentUpdate]);
 
-  const getStatusBadge = (payment: BookingPayment) => {
-    if (payment.status === "paid") {
-      return <Badge className="bg-green-500"><CheckCircle2 className="w-3 h-3 mr-1" />Pago</Badge>;
+  const getStatusBadge = useCallback((payment: Payment) => {
+    if (payment.status === "completed") {
+      return (
+        <Badge className="bg-green-500">
+          <CheckCircle2 className="w-3 h-3 mr-1" />
+          Pago
+        </Badge>
+      );
     }
     if (payment.status === "refunded") {
-      return <Badge className="bg-blue-500"><RefreshCw className="w-3 h-3 mr-1" />Devolvido</Badge>;
+      return (
+        <Badge className="bg-blue-500">
+          <RefreshCw className="w-3 h-3 mr-1" />
+          Devolvido
+        </Badge>
+      );
     }
-    
-    const dueDate = new Date(payment.due_date);
+
+    const dueDate = payment.due_date ? new Date(payment.due_date) : null;
     const today = new Date();
-    const isOverdue = dueDate < today;
-    
+    const isOverdue = dueDate && dueDate < today;
+
     return (
       <Badge variant={isOverdue ? "destructive" : "secondary"}>
         <Clock className="w-3 h-3 mr-1" />
         {isOverdue ? "Atrasado" : "Pendente"}
       </Badge>
     );
-  };
+  }, []);
 
-  const getPaymentTypeLabel = (type: string) => {
+  const getPaymentTypeLabel = useCallback((type: string | null) => {
+    if (!type) return "Outro";
     switch (type) {
       case "monthly":
         return "Mensalidade";
@@ -81,36 +128,37 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
       default:
         return type;
     }
-  };
+  }, []);
 
-  const formatDate = (dateString: string) => {
+  const formatDate = useCallback((dateString: string | null) => {
+    if (!dateString) return "-";
     const date = new Date(dateString);
     return date.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit", year: "numeric" });
-  };
+  }, []);
 
-  const depositPayment = payments.find((p) => p.payment_type === "deposit");
-
-  const handleExportToExcel = () => {
+  const handleExportToExcel = useCallback(() => {
     if (payments.length === 0) {
       alert("Nenhum pagamento para exportar");
       return;
     }
 
     const exportData = payments.map((payment) => ({
-      "Tipo": getPaymentTypeLabel(payment.payment_type),
-      "Valor": `€${payment.amount.toFixed(2)}`,
-      "Vencimento": formatDate(payment.due_date),
-      "Status": payment.status === "paid" ? "Pago" : payment.status === "refunded" ? "Devolvido" : "Pendente",
-      "Data Pagamento": payment.paid_date ? formatDate(payment.paid_date) : "-",
-      "Método": payment.payment_method || "-",
-      "Notas": payment.notes || "-",
+      Tipo: getPaymentTypeLabel(payment.payment_type),
+      Valor: `€${payment.amount.toFixed(2)}`,
+      Vencimento: formatDate(payment.due_date),
+      Status: payment.status === "completed" ? "Pago" : payment.status === "refunded" ? "Devolvido" : "Pendente",
+      "Data Pagamento": payment.paid_at ? formatDate(payment.paid_at) : "-",
+      Método: payment.payment_method || "-",
+      Notas: payment.notes || "-",
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Pagamentos");
     XLSX.writeFile(wb, `pagamentos_reserva_${bookingId.substring(0, 8)}.xlsx`);
-  };
+  }, [payments, bookingId, getPaymentTypeLabel, formatDate]);
+
+  const depositPayment = payments.find((p) => p.payment_type === "deposit");
 
   if (loading) {
     return <div className="text-center py-8">A carregar pagamentos...</div>;
@@ -123,12 +171,7 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
           <CardTitle className="flex items-center justify-between">
             <span>Pagamentos da Reserva</span>
             <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportToExcel}
-                disabled={payments.length === 0}
-              >
+              <Button variant="outline" size="sm" onClick={handleExportToExcel} disabled={payments.length === 0}>
                 <Download className="w-4 h-4 mr-2" />
                 Exportar Excel
               </Button>
@@ -168,17 +211,15 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                           </div>
                           <div className="text-sm text-muted-foreground">
                             <span>Vencimento: {formatDate(payment.due_date)}</span>
-                            {payment.paid_date && (
+                            {payment.paid_at && (
                               <span className="ml-4">
-                                Pago em: {formatDate(payment.paid_date)}
+                                Pago em: {formatDate(payment.paid_at)}
                                 {payment.payment_method && ` (${payment.payment_method})`}
                               </span>
                             )}
                           </div>
                           {payment.notes && (
-                            <div className="text-sm text-muted-foreground mt-1 italic">
-                              {payment.notes}
-                            </div>
+                            <div className="text-sm text-muted-foreground mt-1 italic">{payment.notes}</div>
                           )}
                         </div>
                         <div className="flex items-center gap-3">
@@ -186,7 +227,8 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                           {payment.status === "pending" && (
                             <Button
                               size="sm"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelectedPayment(payment);
                                 setShowMarkPaidDialog(true);
                               }}
@@ -211,17 +253,15 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                         </div>
                         <div className="text-sm text-muted-foreground">
                           <span>Vencimento: {formatDate(depositPayment.due_date)}</span>
-                          {depositPayment.paid_date && (
+                          {depositPayment.paid_at && (
                             <span className="ml-4">
-                              Pago em: {formatDate(depositPayment.paid_date)}
+                              Pago em: {formatDate(depositPayment.paid_at)}
                               {depositPayment.payment_method && ` (${depositPayment.payment_method})`}
                             </span>
                           )}
                         </div>
                         {depositPayment.notes && (
-                          <div className="text-sm text-muted-foreground mt-1 italic">
-                            {depositPayment.notes}
-                          </div>
+                          <div className="text-sm text-muted-foreground mt-1 italic">{depositPayment.notes}</div>
                         )}
                       </div>
                       <div className="flex items-center gap-3">
@@ -230,7 +270,10 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setShowRefundDialog(true)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowRefundDialog(true);
+                            }}
                           >
                             Devolver Caução
                           </Button>
@@ -257,15 +300,11 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                               {getStatusBadge(payment)}
                             </div>
                             <div className="text-sm text-muted-foreground">
-                              <span>Data: {formatDate(payment.paid_date || payment.due_date)}</span>
-                              {payment.payment_method && (
-                                <span className="ml-4">Método: {payment.payment_method}</span>
-                              )}
+                              <span>Data: {formatDate(payment.paid_at || payment.due_date)}</span>
+                              {payment.payment_method && <span className="ml-4">Método: {payment.payment_method}</span>}
                             </div>
                             {payment.notes && (
-                              <div className="text-sm text-muted-foreground mt-1 italic">
-                                {payment.notes}
-                              </div>
+                              <div className="text-sm text-muted-foreground mt-1 italic">{payment.notes}</div>
                             )}
                           </div>
                           <div className="flex items-center gap-3">

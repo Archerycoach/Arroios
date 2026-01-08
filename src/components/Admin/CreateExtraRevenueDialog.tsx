@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,27 +12,25 @@ interface CreateExtraRevenueDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  editRevenue?: any;
 }
 
-export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: CreateExtraRevenueDialogProps) {
+export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRevenue }: CreateExtraRevenueDialogProps) {
   const [formData, setFormData] = useState({
     type: "other",
     description: "",
     amount: "",
     date: new Date().toISOString().split("T")[0],
     booking_id: "",
-    payment_method: "card",
+    payment_method: "credit_card",
   });
   const [loading, setLoading] = useState(false);
   const [bookings, setBookings] = useState<any[]>([]);
+  
+  // Track if we've already loaded data for current editRevenue
+  const lastEditRevenueId = useRef<string | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      loadBookings();
-    }
-  }, [open]);
-
-  const loadBookings = async () => {
+  const loadBookings = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("bookings")
@@ -54,7 +52,52 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
     } catch (error) {
       console.error("Error loading bookings:", error);
     }
-  };
+  }, []);
+
+  // Load bookings only when dialog opens
+  useEffect(() => {
+    if (open) {
+      loadBookings();
+    }
+  }, [open, loadBookings]);
+
+  // Load edit data only when editRevenue changes
+  useEffect(() => {
+    if (!open) {
+      // Reset tracking when dialog closes
+      lastEditRevenueId.current = null;
+      return;
+    }
+
+    const currentEditId = editRevenue?.id || null;
+    
+    // Only update if this is a new edit or switching from edit to create
+    if (lastEditRevenueId.current !== currentEditId) {
+      lastEditRevenueId.current = currentEditId;
+      
+      if (editRevenue) {
+        // Load edit data
+        setFormData({
+          type: editRevenue.type || "other",
+          description: editRevenue.description || "",
+          amount: editRevenue.amount?.toString() || "",
+          date: editRevenue.date || new Date().toISOString().split("T")[0],
+          booking_id: editRevenue.booking_id || "",
+          payment_method: editRevenue.payment_method || "credit_card",
+        });
+      } else {
+        // Reset form for create mode
+        setFormData({
+          type: "other",
+          description: "",
+          amount: "",
+          date: new Date().toISOString().split("T")[0],
+          booking_id: "",
+          payment_method: "credit_card",
+        });
+      }
+    }
+  }, [open, editRevenue]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,9 +112,22 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
         booking_id: formData.booking_id || null,
       };
 
-      const { error } = await supabase.from("extra_revenues").insert([revenueData]);
+      if (editRevenue) {
+        // Update existing revenue
+        const { error } = await supabase
+          .from("extra_revenues")
+          .update(revenueData)
+          .eq("id", editRevenue.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        // Create new revenue
+        const { error } = await supabase
+          .from("extra_revenues")
+          .insert([revenueData]);
+
+        if (error) throw error;
+      }
 
       onSuccess();
       onOpenChange(false);
@@ -83,11 +139,12 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
         amount: "",
         date: new Date().toISOString().split("T")[0],
         booking_id: "",
-        payment_method: "card",
+        payment_method: "credit_card",
       });
+      lastEditRevenueId.current = null;
     } catch (error) {
-      console.error("Error creating extra revenue:", error);
-      alert("Erro ao criar receita extra");
+      console.error("Error saving extra revenue:", error);
+      alert(`Erro ao ${editRevenue ? "atualizar" : "criar"} receita extra`);
     } finally {
       setLoading(false);
     }
@@ -97,8 +154,10 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nova Receita Extra</DialogTitle>
-          <DialogDescription>Adicione uma receita que não seja de reserva de quarto</DialogDescription>
+          <DialogTitle>{editRevenue ? "Editar" : "Nova"} Receita Extra</DialogTitle>
+          <DialogDescription>
+            {editRevenue ? "Atualize" : "Adicione"} uma receita que não seja de reserva de quarto
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -187,12 +246,11 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
                 <SelectValue placeholder="Selecione o método" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="card">💳 Cartão</SelectItem>
+                <SelectItem value="credit_card">💳 Cartão de Crédito</SelectItem>
+                <SelectItem value="debit_card">💳 Cartão de Débito</SelectItem>
                 <SelectItem value="cash">💵 Dinheiro</SelectItem>
-                <SelectItem value="transfer">🏦 Transferência</SelectItem>
-                <SelectItem value="mbway">📱 MB Way</SelectItem>
-                <SelectItem value="multibanco">🎫 Multibanco</SelectItem>
-                <SelectItem value="paypal">💳 PayPal</SelectItem>
+                <SelectItem value="bank_transfer">🏦 Transferência</SelectItem>
+                <SelectItem value="other">🔧 Outro</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -203,7 +261,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess }: Crea
             </Button>
             <Button type="submit" disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Criar Receita
+              {editRevenue ? "Atualizar" : "Criar"} Receita
             </Button>
           </DialogFooter>
         </form>

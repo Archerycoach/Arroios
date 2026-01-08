@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { CreateExtraRevenueDialog } from "@/components/Admin/CreateExtraRevenueDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download } from "lucide-react";
+import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download, Edit2, Trash2 } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { supabase } from "@/integrations/supabase/client";
 import { format, subMonths } from "date-fns";
@@ -47,8 +47,8 @@ export default function ReceitasPage() {
   const [showBookingRevenueDialog, setShowBookingRevenueDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
+  const [editingExtraRevenue, setEditingExtraRevenue] = useState<any>(null);
 
-  // Form data for booking revenue
   const [bookingRevenueForm, setBookingRevenueForm] = useState({
     booking_id: "",
     description: "",
@@ -59,33 +59,7 @@ export default function ReceitasPage() {
   const [availableBookings, setAvailableBookings] = useState<any[]>([]);
   const [savingBookingRevenue, setSavingBookingRevenue] = useState(false);
 
-  useEffect(() => {
-    loadRevenues();
-  }, []);
-
-  useEffect(() => {
-    if (showBookingRevenueDialog) {
-      loadAvailableBookings();
-    }
-  }, [showBookingRevenueDialog]);
-
-  const loadRevenues = async () => {
-    try {
-      setLoading(true);
-      const [bookingsData, extrasData] = await Promise.all([
-        loadBookingRevenues(),
-        loadExtraRevenues(),
-      ]);
-      setBookings(bookingsData);
-      setExtraRevenues(extrasData);
-    } catch (error) {
-      console.error("Error loading revenues:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadBookingRevenues = async () => {
+  const loadBookingRevenues = useCallback(async () => {
     try {
       const data = await bookingService.getAll();
       const cutoffDate = subMonths(new Date(), period);
@@ -98,9 +72,9 @@ export default function ReceitasPage() {
       console.error("Error loading booking revenues:", error);
       return [];
     }
-  };
+  }, [period]);
 
-  const loadExtraRevenues = async () => {
+  const loadExtraRevenues = useCallback(async () => {
     try {
       const cutoffDate = subMonths(new Date(), period);
       const { data, error } = await supabase
@@ -122,9 +96,29 @@ export default function ReceitasPage() {
       console.error("Error loading extra revenues:", error);
       return [];
     }
-  };
+  }, [period]);
 
-  const loadAvailableBookings = async () => {
+  const loadRevenues = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [bookingsData, extrasData] = await Promise.all([
+        loadBookingRevenues(),
+        loadExtraRevenues(),
+      ]);
+      setBookings(bookingsData);
+      setExtraRevenues(extrasData);
+    } catch (error) {
+      console.error("Error loading revenues:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [loadBookingRevenues, loadExtraRevenues]);
+
+  useEffect(() => {
+    loadRevenues();
+  }, [loadRevenues]);
+
+  const loadAvailableBookings = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("bookings")
@@ -149,9 +143,42 @@ export default function ReceitasPage() {
     } catch (error) {
       console.error("Error loading bookings:", error);
     }
-  };
+  }, []);
 
-  const handleCreateBookingRevenue = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (showBookingRevenueDialog) {
+      loadAvailableBookings();
+    }
+  }, [showBookingRevenueDialog, loadAvailableBookings]);
+
+  const handleExtraRevenueSuccess = useCallback(() => {
+    loadRevenues();
+    setEditingExtraRevenue(null);
+  }, [loadRevenues]);
+
+  const handleEditExtraRevenue = useCallback((revenue: any) => {
+    setEditingExtraRevenue(revenue);
+    setShowExtraDialog(true);
+  }, []);
+
+  const handleDeleteExtraRevenue = useCallback(async (id: string) => {
+    if (!confirm("Tem certeza que deseja eliminar esta receita extra?")) return;
+
+    try {
+      const { error } = await supabase
+        .from("extra_revenues")
+        .delete()
+        .eq("id", id);
+
+      if (error) throw error;
+      await loadRevenues();
+    } catch (error) {
+      console.error("Error deleting extra revenue:", error);
+      alert("Erro ao eliminar receita extra");
+    }
+  }, [loadRevenues]);
+
+  const handleCreateBookingRevenue = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingBookingRevenue(true);
 
@@ -171,7 +198,6 @@ export default function ReceitasPage() {
       await loadRevenues();
       setShowBookingRevenueDialog(false);
 
-      // Reset form
       setBookingRevenueForm({
         booking_id: "",
         description: "",
@@ -185,9 +211,9 @@ export default function ReceitasPage() {
     } finally {
       setSavingBookingRevenue(false);
     }
-  };
+  }, [bookingRevenueForm, loadRevenues]);
 
-  const handleExportToExcel = () => {
+  const handleExportToExcel = useCallback(() => {
     const exportData = filteredRevenues.map(revenue => ({
       date: revenue.date,
       type: revenue.type === "booking" ? "Reserva" : "Extra",
@@ -201,49 +227,90 @@ export default function ReceitasPage() {
 
     const periodLabel = period === 1 ? "1mes" : period === 3 ? "3meses" : period === 6 ? "6meses" : "12meses";
     exportToExcel(exportData, revenueExportColumns, `receitas_${periodLabel}`);
-  };
+  }, [period]);
 
-  const totalBookingRevenue = bookings.reduce((sum, b) => sum + b.total_amount, 0);
-  const totalExtraRevenue = extraRevenues.reduce((sum, e) => sum + e.amount, 0);
-  const totalRevenue = totalBookingRevenue + totalExtraRevenue;
+  const handlePeriodChange = useCallback((v: string) => {
+    setPeriod(Number(v) as 1 | 3 | 6 | 12);
+  }, []);
 
-  const allRevenues = [
-    ...bookings.map((b) => ({
-      id: b.id,
-      type: "booking" as const,
-      date: b.created_at,
-      description: `Reserva #${b.booking_number || b.id.slice(0, 8)}`,
-      customer: b.guests?.full_name || "N/A",
-      room: b.rooms?.room_number || "N/A",
-      nights: b.num_nights,
-      amount: b.total_amount,
-      channel: "Site",
-    })),
-    ...extraRevenues.map((e) => ({
-      id: e.id,
-      type: "extra" as const,
-      date: e.date,
-      description: e.description,
-      customer: e.bookings?.guests?.full_name || "N/A",
-      room: e.bookings?.rooms?.room_number || "-",
-      nights: "-",
-      amount: e.amount,
-      channel: "Extra",
-    })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  }, []);
 
-  const filteredRevenues = allRevenues.filter((revenue) => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      revenue.description.toLowerCase().includes(query) ||
-      revenue.customer.toLowerCase().includes(query) ||
-      revenue.room.toString().toLowerCase().includes(query);
+  const handleShowBookingDialog = useCallback(() => {
+    setShowBookingRevenueDialog(true);
+  }, []);
 
-    if (activeTab === "all") return matchesSearch;
-    if (activeTab === "bookings") return matchesSearch && revenue.type === "booking";
-    if (activeTab === "extras") return matchesSearch && revenue.type === "extra";
-    return matchesSearch;
-  });
+  const handleShowExtraDialog = useCallback(() => {
+    setShowExtraDialog(true);
+  }, []);
+
+  const handleCloseExtraDialog = useCallback((open: boolean) => {
+    setShowExtraDialog(open);
+    if (!open) setEditingExtraRevenue(null);
+  }, []);
+
+  const handleCloseBookingDialog = useCallback(() => {
+    setShowBookingRevenueDialog(false);
+  }, []);
+
+  const totalBookingRevenue = useMemo(() => 
+    bookings.reduce((sum, b) => sum + b.total_amount, 0),
+    [bookings]
+  );
+
+  const totalExtraRevenue = useMemo(() => 
+    extraRevenues.reduce((sum, e) => sum + e.amount, 0),
+    [extraRevenues]
+  );
+
+  const totalRevenue = useMemo(() => 
+    totalBookingRevenue + totalExtraRevenue,
+    [totalBookingRevenue, totalExtraRevenue]
+  );
+
+  const allRevenues = useMemo(() => {
+    const combined = [
+      ...bookings.map((b) => ({
+        id: b.id,
+        type: "booking" as const,
+        date: b.created_at,
+        description: `Reserva #${b.booking_number || b.id.slice(0, 8)}`,
+        customer: b.guests?.full_name || "N/A",
+        room: b.rooms?.room_number || "N/A",
+        nights: b.num_nights,
+        amount: b.total_amount,
+        channel: "Site",
+      })),
+      ...extraRevenues.map((e) => ({
+        id: e.id,
+        type: "extra" as const,
+        date: e.date,
+        description: e.description,
+        customer: e.bookings?.guests?.full_name || "N/A",
+        room: e.bookings?.rooms?.room_number || "-",
+        nights: "-",
+        amount: e.amount,
+        channel: "Extra",
+      })),
+    ];
+    return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [bookings, extraRevenues]);
+
+  const filteredRevenues = useMemo(() => {
+    return allRevenues.filter((revenue) => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch =
+        revenue.description.toLowerCase().includes(query) ||
+        revenue.customer.toLowerCase().includes(query) ||
+        revenue.room.toString().toLowerCase().includes(query);
+
+      if (activeTab === "all") return matchesSearch;
+      if (activeTab === "bookings") return matchesSearch && revenue.type === "booking";
+      if (activeTab === "extras") return matchesSearch && revenue.type === "extra";
+      return matchesSearch;
+    });
+  }, [allRevenues, searchQuery, activeTab]);
 
   if (loading) {
     return (
@@ -258,14 +325,13 @@ export default function ReceitasPage() {
   return (
     <AdminLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Receitas</h1>
             <p className="text-muted-foreground mt-2">Análise de todas as entradas de receita</p>
           </div>
           <div className="flex gap-2">
-            <Select value={period.toString()} onValueChange={(v) => setPeriod(Number(v) as 1 | 3 | 6 | 12)}>
+            <Select value={period.toString()} onValueChange={handlePeriodChange}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue />
               </SelectTrigger>
@@ -280,18 +346,17 @@ export default function ReceitasPage() {
               <Download className="h-4 w-4 mr-2" />
               Exportar Excel
             </Button>
-            <Button onClick={() => setShowBookingRevenueDialog(true)} variant="outline">
+            <Button onClick={handleShowBookingDialog} variant="outline">
               <Hotel className="h-4 w-4 mr-2" />
               Receita
             </Button>
-            <Button onClick={() => setShowExtraDialog(true)}>
+            <Button onClick={handleShowExtraDialog}>
               <Plus className="h-4 w-4 mr-2" />
               Receita Extra
             </Button>
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -329,7 +394,6 @@ export default function ReceitasPage() {
           </Card>
         </div>
 
-        {/* Search */}
         <Card>
           <CardHeader>
             <CardTitle>Pesquisar Receitas</CardTitle>
@@ -340,14 +404,13 @@ export default function ReceitasPage() {
               <Input
                 placeholder="Pesquisar por cliente, quarto ou descrição..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={handleSearchChange}
                 className="pl-10"
               />
             </div>
           </CardContent>
         </Card>
 
-        {/* Revenues Table with Tabs */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -372,6 +435,7 @@ export default function ReceitasPage() {
                   <TableHead>Descrição</TableHead>
                   <TableHead>Noites</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -390,12 +454,32 @@ export default function ReceitasPage() {
                     <TableCell className="text-right font-semibold text-green-600">
                       €{revenue.amount.toFixed(2)}
                     </TableCell>
+                    <TableCell className="text-right">
+                      {revenue.type === "extra" && (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditExtraRevenue(extraRevenues.find(e => e.id === revenue.id))}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteExtraRevenue(revenue.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
 
                 {filteredRevenues.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       Nenhuma receita encontrada
                     </TableCell>
                   </TableRow>
@@ -405,10 +489,13 @@ export default function ReceitasPage() {
           </CardContent>
         </Card>
 
-        {/* Extra Revenue Dialog */}
-        <CreateExtraRevenueDialog open={showExtraDialog} onOpenChange={setShowExtraDialog} onSuccess={loadRevenues} />
+        <CreateExtraRevenueDialog 
+          open={showExtraDialog} 
+          onOpenChange={handleCloseExtraDialog} 
+          onSuccess={handleExtraRevenueSuccess}
+          editRevenue={editingExtraRevenue}
+        />
 
-        {/* Booking Revenue Dialog */}
         <Dialog open={showBookingRevenueDialog} onOpenChange={setShowBookingRevenueDialog}>
           <DialogContent className="max-w-md">
             <DialogHeader>
@@ -493,7 +580,7 @@ export default function ReceitasPage() {
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowBookingRevenueDialog(false)}>
+                <Button type="button" variant="outline" onClick={handleCloseBookingDialog}>
                   Cancelar
                 </Button>
                 <Button type="submit" disabled={savingBookingRevenue}>

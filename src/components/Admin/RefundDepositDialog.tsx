@@ -122,8 +122,10 @@ export function RefundDepositDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="transfer">Transferência Bancária</SelectItem>
-                  <SelectItem value="mbway">MBWay</SelectItem>
+                  <SelectItem value="bank_transfer">Transferência Bancária</SelectItem>
+                  <SelectItem value="credit_card">Cartão de Crédito</SelectItem>
+                  <SelectItem value="debit_card">Cartão de Débito</SelectItem>
+                  <SelectItem value="other">Outro</SelectItem>
                 </SelectContent>
               </Select>
             </div>

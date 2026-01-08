@@ -36,8 +36,8 @@ export interface CreateBookingData {
 
 export const bookingService = {
   // Get all bookings with details
-  async getAll(): Promise<BookingWithDetails[]> {
-    const { data, error } = await supabase
+  async getAll(startDate?: string, endDate?: string): Promise<BookingWithDetails[]> {
+    let query = supabase
       .from("bookings")
       .select(`
         *,
@@ -54,8 +54,17 @@ export const bookingService = {
           email,
           phone
         )
-      `)
-      .order("created_at", { ascending: false });
+      `);
+
+    if (startDate) {
+      query = query.gte('check_in_date', startDate);
+    }
+
+    if (endDate) {
+      query = query.lte('check_in_date', endDate);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) throw error;
     
@@ -206,7 +215,7 @@ export const bookingService = {
   },
 
   // Update booking status
-  async updateStatus(id: string, status: "pending" | "confirmed" | "paid" | "completed" | "cancelled"): Promise<void> {
+  async updateStatus(id: string, status: "pending" | "confirmed" | "paid" | "completed" | "cancelled" | "no_show"): Promise<void> {
     const { error } = await supabase
       .from("bookings")
       .update({ status })
@@ -225,7 +234,7 @@ export const bookingService = {
     if (error) throw error;
   },
 
-  // Calculate best price based on duration - SIMPLIFIED
+  // Calculate best price based on duration - Using 15-day periods
   calculateBestPrice(
     room: { monthly_price: number; biweekly_price?: number | null; base_price?: number },
     nights: number
@@ -237,36 +246,32 @@ export const bookingService = {
       throw new Error("Preço mensal não definido para este quarto");
     }
 
-    // For stays less than 15 days, count complete biweekly periods (usually 0)
-    if (nights < 15) {
-      const quinzenasCompletas = Math.floor(nights / 15);
-      const totalPrice = quinzenasCompletas * biweeklyPrice;
-      return {
-        totalPrice,
-        priceType: "daily",
-        breakdown: `${nights} dia${nights !== 1 ? 's' : ''} ÷ 15 = ${quinzenasCompletas} quinzenas completas × €${biweeklyPrice.toFixed(2)}`,
-      };
+    // Calculate complete 15-day periods
+    const complete15DayPeriods = Math.floor(nights / 15);
+    
+    // Every 2 periods of 15 days = 1 month
+    const completeMonths = Math.floor(complete15DayPeriods / 2);
+    const remaining15DayPeriods = complete15DayPeriods % 2;
+    
+    const totalPrice = (completeMonths * monthlyPrice) + (remaining15DayPeriods * biweeklyPrice);
+    
+    let breakdown = "";
+    if (completeMonths > 0 && remaining15DayPeriods > 0) {
+      breakdown = `${completeMonths} mês(es) (€${monthlyPrice.toFixed(2)}) + ${remaining15DayPeriods} período(s) de 15 dias (€${biweeklyPrice.toFixed(2)})`;
+    } else if (completeMonths > 0) {
+      breakdown = `${completeMonths} mês(es) × €${monthlyPrice.toFixed(2)}`;
+    } else if (remaining15DayPeriods > 0) {
+      breakdown = `${remaining15DayPeriods} período(s) de 15 dias × €${biweeklyPrice.toFixed(2)}`;
+    } else {
+      breakdown = `Menos de 15 dias - sem cobrança de período completo`;
     }
 
-    // For stays 15-29 days, count complete biweekly periods
-    if (nights >= 15 && nights < 30) {
-      const quinzenasCompletas = Math.floor(nights / 15);
-      const totalPrice = quinzenasCompletas * biweeklyPrice;
-      return {
-        totalPrice,
-        priceType: "biweekly",
-        breakdown: `${nights} dias ÷ 15 = ${quinzenasCompletas} quinzenas completas × €${biweeklyPrice.toFixed(2)}`,
-      };
-    }
-
-    // For stays 30+ days, count complete months
-    const mesesCompletos = Math.floor(nights / 30);
-    const totalPrice = mesesCompletos * monthlyPrice;
+    const priceType = completeMonths > 0 ? "monthly" : (remaining15DayPeriods > 0 ? "biweekly" : "daily");
 
     return {
       totalPrice,
-      priceType: "monthly",
-      breakdown: `${nights} dias ÷ 30 = ${mesesCompletos} meses completos × €${monthlyPrice.toFixed(2)}`,
+      priceType,
+      breakdown,
     };
   },
 

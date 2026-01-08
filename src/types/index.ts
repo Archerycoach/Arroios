@@ -174,6 +174,7 @@ export interface Payment {
   payment_method?: string; // DB column
   payment_type: string; // DB column
   due_date?: string; // DB column - REQUIRED for ordering
+  paid_at?: string; // DB column - Actual payment timestamp
   payment_date?: string; // DB column
   notes?: string;
   stripePaymentIntentId?: string;
@@ -195,7 +196,8 @@ export type PaymentStatus =
   | "partially_refunded"
   | "paid"
   | "overdue"
-  | "cancelled";
+  | "cancelled"
+  | "completed";
 
 export type PaymentMethod = "card" | "bank_transfer" | "cash" | "other";
 

@@ -561,11 +561,11 @@ export default function ExpensesPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="card">💳 Cartão</SelectItem>
+                        <SelectItem value="credit_card">💳 Cartão de Crédito</SelectItem>
+                        <SelectItem value="debit_card">💳 Cartão de Débito</SelectItem>
                         <SelectItem value="cash">💵 Dinheiro</SelectItem>
-                        <SelectItem value="transfer">🏦 Transferência</SelectItem>
-                        <SelectItem value="mbway">📱 MB Way</SelectItem>
-                        <SelectItem value="check">📝 Cheque</SelectItem>
+                        <SelectItem value="bank_transfer">🏦 Transferência</SelectItem>
+                        <SelectItem value="other">🔧 Outro</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

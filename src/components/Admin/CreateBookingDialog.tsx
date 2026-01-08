@@ -21,9 +21,10 @@ interface CreateBookingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+  editBooking?: BookingWithDetails | null;
 }
 
-export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBookingDialogProps) {
+export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking }: CreateBookingDialogProps) {
   const { toast } = useToast();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [guests, setGuests] = useState<Guest[]>([]);
@@ -59,8 +60,27 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     if (open) {
       loadData();
       setDateConflictError("");
+      
+      if (editBooking) {
+        // Preencher formulário com dados da reserva existente
+        setFormData({
+          guest_id: editBooking.guest_id,
+          room_id: editBooking.room_id,
+          check_in_date: editBooking.check_in_date.split('T')[0],
+          check_out_date: editBooking.check_out_date.split('T')[0],
+          custom_price: editBooking.total_amount?.toString() || "",
+          pricing_mode: editBooking.payment_type === "monthly" || editBooking.payment_type === "biweekly" 
+            ? editBooking.payment_type 
+            : "manual",
+          status: "confirmed", // Mantém estado ou usa confirmed como base
+          special_requests: editBooking.special_notes || "",
+        });
+        setIncludeDeposit(false); // Edição normalmente não re-aciona depósito
+      } else {
+        resetForm();
+      }
     }
-  }, [open]);
+  }, [open, editBooking]);
 
   // Validate dates whenever room or dates change
   useEffect(() => {
@@ -86,26 +106,17 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       let calculatedPrice = 0;
       
       if (formData.pricing_mode === "monthly") {
-        if (days >= 30) {
-          // 30+ dias: calcular meses completos
-          const mesesCompletos = Math.floor(days / 30);
-          calculatedPrice = mesesCompletos * selectedRoom.monthly_price;
-        } else if (days >= 15) {
-          // 15-29 dias: cobrar 1 mês completo
-          calculatedPrice = selectedRoom.monthly_price;
-        } else {
-          // 1-14 dias: cobrar 1 quinzena
-          calculatedPrice = selectedRoom.monthly_price / 2;
-        }
+        // Calculate complete 15-day periods
+        const complete15DayPeriods = Math.floor(days / 15);
+        const completeMonths = Math.floor(complete15DayPeriods / 2);
+        const remaining15DayPeriods = complete15DayPeriods % 2;
+        const biweeklyPrice = selectedRoom.monthly_price / 2;
+        
+        calculatedPrice = (completeMonths * selectedRoom.monthly_price) + (remaining15DayPeriods * biweeklyPrice);
       } else if (formData.pricing_mode === "biweekly") {
         const biweeklyPrice = selectedRoom.monthly_price / 2;
-        if (days >= 15) {
-          const quinzenasCompletas = Math.floor(days / 15);
-          calculatedPrice = quinzenasCompletas * biweeklyPrice;
-        } else {
-          // Menos de 15 dias: cobrar 1 quinzena
-          calculatedPrice = biweeklyPrice;
-        }
+        const complete15DayPeriods = Math.floor(days / 15);
+        calculatedPrice = complete15DayPeriods * biweeklyPrice;
       }
 
       setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
@@ -114,13 +125,13 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
 
   // Initialize deposit amount when room is selected
   useEffect(() => {
-    if (formData.room_id) {
+    if (formData.room_id && !editBooking) {
       const selectedRoom = rooms.find(r => r.id === formData.room_id);
       if (selectedRoom) {
         setDepositAmount(selectedRoom.monthly_price.toFixed(2));
       }
     }
-  }, [formData.room_id, rooms]);
+  }, [formData.room_id, rooms, editBooking]);
 
   const loadData = async () => {
     try {
@@ -131,7 +142,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       ]);
       setRooms(roomsData);
       setGuests(guestsData);
-      setAllBookings(bookingsData.filter(b => b.status !== "cancelled"));
+      setAllBookings(bookingsData.filter(b => b.status !== "cancelled" && b.id !== editBooking?.id));
     } catch (error) {
       console.error("Error loading data:", error);
     }
@@ -146,8 +157,9 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     const checkIn = new Date(checkInStr);
     const checkOut = new Date(checkOutStr);
 
+    // Filter out current booking if editing
     const roomBookings = allBookings.filter(
-      booking => booking.room_id === roomId && booking.status !== "cancelled"
+      booking => booking.room_id === roomId && booking.status !== "cancelled" && booking.id !== editBooking?.id
     );
 
     const hasConflict = roomBookings.some(booking => {
@@ -179,41 +191,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     } else {
       setDateConflictError("");
     }
-  };
-
-  const calculatePrice = (): { total: number; breakdown: string; priceType: string } => {
-    const selectedRoom = rooms.find(r => r.id === formData.room_id);
-    if (!selectedRoom || !formData.check_in_date || !formData.check_out_date) {
-      return { total: 0, breakdown: "", priceType: "" };
-    }
-
-    const checkIn = new Date(formData.check_in_date);
-    const checkOut = new Date(formData.check_out_date);
-    const days = differenceInDays(checkOut, checkIn);
-
-    if (days <= 0) {
-      return { total: 0, breakdown: "", priceType: "" };
-    }
-
-    const result = bookingService.calculateBestPrice(selectedRoom, days);
-    return {
-      total: result.totalPrice,
-      breakdown: result.breakdown,
-      priceType: result.priceType,
-    };
-  };
-
-  const handleRecalculate = () => {
-    const { total } = calculatePrice();
-    if (total > 0) {
-      setFormData(prev => ({ ...prev, custom_price: total.toFixed(2) }));
-    }
-  };
-
-  const getPaymentType = (days: number): PaymentType => {
-    if (days >= 30) return "monthly";
-    if (days >= 15) return "biweekly";
-    return "daily";
   };
 
   const handleCreateGuest = async () => {
@@ -286,64 +263,82 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
       } else if (formData.pricing_mode === "biweekly") {
         paymentType = "biweekly";
       } else {
-        paymentType = getPaymentType(nights);
+        paymentType = nights >= 30 ? "monthly" : (nights >= 15 ? "biweekly" : "daily");
       }
-
-      const userResponse = await supabase.auth.getUser();
-      const userId = userResponse.data.user?.id;
 
       const bookingData = {
         room_id: formData.room_id,
         guest_id: formData.guest_id,
         check_in_date: checkIn.toISOString(),
         check_out_date: checkOut.toISOString(),
-        booking_number: `BK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-        status: "pending" as const,
+        status: editBooking ? editBooking.status : "pending",
         room_price: selectedRoom?.monthly_price || 0,
         total_amount: totalAmount,
         num_nights: nights,
         payment_type: paymentType,
         custom_price: totalAmount,
-        special_requests: formData.special_requests || "",
-        user_id: userId,
+        special_notes: formData.special_requests || "",
       };
 
-      const createdBooking = await bookingService.create(bookingData);
+      if (editBooking) {
+        // UPDATE
+        await bookingService.update(editBooking.id, bookingData);
+        toast({
+          title: "Reserva atualizada",
+          description: "A reserva foi atualizada com sucesso.",
+        });
+      } else {
+        // CREATE
+        const userResponse = await supabase.auth.getUser();
+        const userId = userResponse.data.user?.id;
+        
+        const newBookingData = {
+          ...bookingData,
+          booking_number: `BK-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+          user_id: userId,
+        };
 
-      if (createdBooking) {
+        const createdBooking = await bookingService.create(newBookingData);
+
+        if (createdBooking && createdBooking.id) {
+           // Só gera pagamentos se for nova reserva e tiver caução selecionada
+           if (includeDeposit) { // Note: variable name kept as includeDeposit based on previous code, but logic inside generates payments
+            const days = differenceInDays(checkOut, checkIn);
+            // Calculate number of 15-day periods
+            const complete15DayPeriods = Math.floor(days / 15);
+            // Each month = 2 periods of 15 days, so number of payments = (periods / 2) rounded up
+            const numberOfInstallments = Math.ceil(complete15DayPeriods / 2);
+            
+            // Each monthly installment should be the total divided by number of months
+            const monthlyAmount = numberOfInstallments > 0 ? totalAmount / numberOfInstallments : totalAmount;
+
+            // Generate payments with proper monthly amounts
+            await paymentService.generatePaymentsForBooking(
+              createdBooking.id,
+              monthlyAmount,
+              numberOfInstallments,
+              formData.check_in_date,
+              includeDeposit, // This passes the boolean to include a separate deposit payment
+              depositAmount ? parseFloat(depositAmount) : 0
+            );
+           }
+        }
+        
         toast({
           title: "Reserva criada",
           description: "A reserva foi criada com sucesso.",
         });
-
-        if (createdBooking.id) {
-          const days = differenceInDays(checkOut, checkIn);
-          const calculatedMonths = Math.floor(days / 30);
-          const numberOfInstallments = calculatedMonths > 0 ? calculatedMonths : 1;
-          const monthlyAmount = totalAmount / numberOfInstallments;
-
-          await paymentService.generatePaymentsForBooking(
-            createdBooking.id,
-            monthlyAmount,
-            numberOfInstallments,
-            formData.check_in_date,
-            includeDeposit,
-            depositAmount ? parseFloat(depositAmount) : 0
-          );
-        }
-
-        onSuccess();
-        onOpenChange(false);
-        resetForm();
-      } else {
-        throw new Error("Falha ao criar reserva");
       }
+
+      onSuccess();
+      onOpenChange(false);
+      resetForm();
     } catch (error) {
-      console.error("Error creating booking:", error);
+      console.error("Error saving booking:", error);
       toast({
         variant: "destructive",
         title: "Erro",
-        description: "Erro ao criar reserva. Tente novamente."
+        description: "Erro ao guardar reserva. Tente novamente."
       });
     } finally {
       setLoading(false);
@@ -375,9 +370,9 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nova Reserva</DialogTitle>
+          <DialogTitle>{editBooking ? "Editar Reserva" : "Nova Reserva"}</DialogTitle>
           <DialogDescription>
-            Criar uma nova reserva no sistema
+            {editBooking ? `Editar reserva #${editBooking.booking_number}` : "Criar uma nova reserva no sistema"}
           </DialogDescription>
         </DialogHeader>
 
@@ -387,7 +382,11 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
             <Label htmlFor="room_id">
               Quarto <span className="text-destructive">*</span>
             </Label>
-            <Select value={formData.room_id} onValueChange={(value) => setFormData({ ...formData, room_id: value })}>
+            <Select 
+              value={formData.room_id} 
+              onValueChange={(value) => setFormData({ ...formData, room_id: value })}
+              disabled={!!editBooking}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o quarto" />
               </SelectTrigger>
@@ -399,6 +398,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                 ))}
               </SelectContent>
             </Select>
+            {editBooking && <p className="text-xs text-muted-foreground">O quarto não pode ser alterado na edição.</p>}
           </div>
 
           {/* Guest Selection */}
@@ -407,19 +407,25 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               <Label htmlFor="guest_id">
                 Cliente <span className="text-destructive">*</span>
               </Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNewGuestForm(!showNewGuestForm)}
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                {showNewGuestForm ? "Cancelar" : "Novo Cliente"}
-              </Button>
+              {!editBooking && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNewGuestForm(!showNewGuestForm)}
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  {showNewGuestForm ? "Cancelar" : "Novo Cliente"}
+                </Button>
+              )}
             </div>
 
             {!showNewGuestForm ? (
-              <Select value={formData.guest_id} onValueChange={(value) => setFormData({ ...formData, guest_id: value })}>
+              <Select 
+                value={formData.guest_id} 
+                onValueChange={(value) => setFormData({ ...formData, guest_id: value })}
+                disabled={!!editBooking}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o cliente" />
                 </SelectTrigger>
@@ -599,53 +605,41 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
                     Duração: {days} dia{days !== 1 ? 's' : ''}
                   </div>
                   {formData.pricing_mode === "monthly" && (() => {
-                    if (days >= 30) {
-                      const mesesCompletos = Math.floor(days / 30);
-                      return (
-                        <div className="text-sm">
-                          • {days} dias ÷ 30 = {mesesCompletos} meses completos
-                          <br />
-                          • {mesesCompletos} meses × €{selectedRoom.monthly_price.toFixed(2)} = €{(mesesCompletos * selectedRoom.monthly_price).toFixed(2)}
-                        </div>
-                      );
-                    } else if (days >= 15) {
-                      return (
-                        <div className="text-sm">
-                          • {days} dias (entre 15-29 dias)
-                          <br />
-                          • Cobrança: 1 mês completo = €{selectedRoom.monthly_price.toFixed(2)}
-                        </div>
-                      );
-                    } else {
-                      return (
-                        <div className="text-sm">
-                          • {days} dias (até 14 dias)
-                          <br />
-                          • Cobrança: 1 quinzena = €{(selectedRoom.monthly_price / 2).toFixed(2)}
-                        </div>
-                      );
-                    }
+                    const complete15DayPeriods = Math.floor(days / 15);
+                    const completeMonths = Math.floor(complete15DayPeriods / 2);
+                    const remaining15DayPeriods = complete15DayPeriods % 2;
+                    const biweeklyPrice = selectedRoom.monthly_price / 2;
+                    
+                    return (
+                      <div className="text-sm space-y-1">
+                        <div>• {days} dias ÷ 15 = {complete15DayPeriods} períodos completos de 15 dias</div>
+                        {completeMonths > 0 && (
+                          <div>• {completeMonths} mês(es) × €{selectedRoom.monthly_price.toFixed(2)} = €{(completeMonths * selectedRoom.monthly_price).toFixed(2)}</div>
+                        )}
+                        {remaining15DayPeriods > 0 && (
+                          <div>• {remaining15DayPeriods} período(s) de 15 dias × €{biweeklyPrice.toFixed(2)} = €{(remaining15DayPeriods * biweeklyPrice).toFixed(2)}</div>
+                        )}
+                        {complete15DayPeriods === 0 && (
+                          <div className="text-amber-600">⚠️ Menos de 15 dias - considere ajustar o período</div>
+                        )}
+                      </div>
+                    );
                   })()}
                   {formData.pricing_mode === "biweekly" && (() => {
                     const biweeklyPrice = selectedRoom.monthly_price / 2;
-                    if (days >= 15) {
-                      const quinzenasCompletas = Math.floor(days / 15);
-                      return (
-                        <div className="text-sm">
-                          • {days} dias ÷ 15 = {quinzenasCompletas} quinzenas completas
-                          <br />
-                          • {quinzenasCompletas} quinzenas × €{biweeklyPrice.toFixed(2)} = €{(quinzenasCompletas * biweeklyPrice).toFixed(2)}
-                        </div>
-                      );
-                    } else {
-                      return (
-                        <div className="text-sm">
-                          • {days} dias (menos de 15 dias)
-                          <br />
-                          • Cobrança: 1 quinzena = €{biweeklyPrice.toFixed(2)}
-                        </div>
-                      );
-                    }
+                    const complete15DayPeriods = Math.floor(days / 15);
+                    
+                    return (
+                      <div className="text-sm space-y-1">
+                        <div>• {days} dias ÷ 15 = {complete15DayPeriods} períodos de 15 dias</div>
+                        {complete15DayPeriods > 0 && (
+                          <div>• {complete15DayPeriods} × €{biweeklyPrice.toFixed(2)} = €{(complete15DayPeriods * biweeklyPrice).toFixed(2)}</div>
+                        )}
+                        {complete15DayPeriods === 0 && (
+                          <div className="text-amber-600">⚠️ Menos de 15 dias - considere ajustar o período</div>
+                        )}
+                      </div>
+                    );
                   })()}
                 </div>
               )}
@@ -715,8 +709,8 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
             </div>
           )}
 
-          {/* Security Deposit Section */}
-          {selectedRoom && (
+          {/* Security Deposit Section - ONLY FOR NEW BOOKINGS */}
+          {selectedRoom && !editBooking && (
             <div className="rounded-lg border bg-muted/50 p-4 space-y-3">
               <div className="flex items-start space-x-3">
                 <input
@@ -737,48 +731,29 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               </div>
 
               {includeDeposit && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="deposit_amount">Valor da Caução</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
-                      <Input
-                        id="deposit_amount"
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={depositAmount}
-                        onChange={(e) => setDepositAmount(e.target.value)}
-                        placeholder="0.00"
-                        className="pl-7"
-                      />
-                    </div>
+                <div className="space-y-2">
+                  <Label htmlFor="deposit_amount">Valor da Caução</Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                    <Input
+                      id="deposit_amount"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="pl-7"
+                    />
                   </div>
-
-                  {depositAmount && parseFloat(depositAmount) > 0 && formData.custom_price && parseFloat(formData.custom_price) > 0 && (
-                    <div className="pt-2 border-t space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Valor da reserva:</span>
-                        <span className="font-medium">€{parseFloat(formData.custom_price || "0").toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Caução de segurança:</span>
-                        <span className="font-medium">€{parseFloat(depositAmount).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm font-semibold pt-2 border-t">
-                        <span>Total a pagar:</span>
-                        <span>€{(parseFloat(formData.custom_price || "0") + parseFloat(depositAmount)).toFixed(2)}</span>
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
             </div>
           )}
 
           {/* Special Requests */}
           <div className="space-y-2">
-            <Label>Pedidos Especiais</Label>
+            <Label>Notas / Observações</Label>
             <Textarea
               rows={3}
               value={formData.special_requests}
@@ -792,7 +767,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess }: CreateBoo
               Cancelar
             </Button>
             <Button type="submit" disabled={loading || !!dateConflictError}>
-              {loading ? "A criar..." : "Criar Reserva"}
+              {loading ? (editBooking ? "A guardar..." : "A criar...") : (editBooking ? "Guardar Alterações" : "Criar Reserva")}
             </Button>
           </DialogFooter>
         </form>

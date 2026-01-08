@@ -13,7 +13,7 @@ import { roomService } from "@/services/roomService";
 import { exportPaymentsToExcel } from "@/lib/exportUtils";
 import type { PaymentWithDetails } from "@/types";
 
-type PaymentStatus = "all" | "pending" | "paid" | "overdue";
+type PaymentStatus = "all" | "pending" | "completed" | "overdue";
 
 export default function ExportarPagamentosPage() {
   const { toast } = useToast();
@@ -98,7 +98,7 @@ export default function ExportarPagamentosPage() {
     // Filter by status
     if (selectedStatus !== "all") {
       filtered = filtered.filter((p) => {
-        if (selectedStatus === "paid") return p.status === "paid";
+        if (selectedStatus === "completed") return p.status === "completed";
         if (selectedStatus === "pending") return p.status === "pending";
         if (selectedStatus === "overdue") {
           return p.status === "pending" && p.due_date && new Date(p.due_date) < new Date();
@@ -112,7 +112,7 @@ export default function ExportarPagamentosPage() {
     // Calculate stats
     const totalAmount = filtered.reduce((sum, p) => sum + p.amount, 0);
     const paidAmount = filtered
-      .filter((p) => p.status === "paid")
+      .filter((p) => p.status === "completed")
       .reduce((sum, p) => sum + p.amount, 0);
     const pendingAmount = filtered
       .filter((p) => p.status === "pending")
@@ -187,7 +187,7 @@ export default function ExportarPagamentosPage() {
   };
 
   const getStatusBadge = (payment: PaymentWithDetails) => {
-    if (payment.status === "paid") {
+    if (payment.status === "paid" || payment.status === "completed") {
       return <Badge className="bg-green-500">✅ Pago</Badge>;
     }
     if (payment.status === "refunded") {
@@ -283,7 +283,7 @@ export default function ExportarPagamentosPage() {
                     <SelectContent>
                       <SelectItem value="all">Todos</SelectItem>
                       <SelectItem value="pending">⏰ Pendentes</SelectItem>
-                      <SelectItem value="paid">✅ Pagos</SelectItem>
+                      <SelectItem value="completed">✅ Pagos</SelectItem>
                       <SelectItem value="overdue">🔴 Atrasados</SelectItem>
                     </SelectContent>
                   </Select>
@@ -373,8 +373,8 @@ export default function ExportarPagamentosPage() {
                           </TableCell>
                           <TableCell>{getStatusBadge(payment)}</TableCell>
                           <TableCell>
-                            {payment.payment_date
-                              ? new Date(payment.payment_date).toLocaleDateString("pt-PT")
+                            {payment.paid_at
+                              ? new Date(payment.paid_at).toLocaleDateString("pt-PT")
                               : "-"}
                           </TableCell>
                           <TableCell>{payment.payment_method || "-"}</TableCell>

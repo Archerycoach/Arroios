@@ -21,7 +21,12 @@ import {
   Type,
   ExternalLink,
   Download,
-  Building2
+  Building2,
+  Home,
+  BookOpen,
+  Receipt,
+  FileText,
+  UserCog
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,7 +51,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   const navItems = [
     { name: "Dashboard", href: "/admin", icon: LayoutDashboard, adminOnly: false },
     { name: "Calendário", href: "/admin/calendar", icon: Calendar, adminOnly: false },
-    { name: "Reservas", href: "/admin/bookings", icon: CalendarCheck, adminOnly: false },
+    { name: "Reservas", href: "/admin/reservas", icon: BookOpen, adminOnly: false },
     { name: "Quartos", href: "/admin/rooms", icon: BedDouble, adminOnly: false },
     { name: "Receitas", href: "/admin/receitas", icon: TrendingUp, adminOnly: false },
     { name: "Exportar Pagamentos", href: "/admin/exportar-pagamentos", icon: Download, adminOnly: false },

@@ -830,6 +830,7 @@ export type Database = {
           failure_reason: string | null
           id: string
           metadata: Json | null
+          notes: string | null
           paid_at: string | null
           payment_date: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
@@ -852,6 +853,7 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           metadata?: Json | null
+          notes?: string | null
           paid_at?: string | null
           payment_date?: string | null
           payment_method: Database["public"]["Enums"]["payment_method"]
@@ -874,6 +876,7 @@ export type Database = {
           failure_reason?: string | null
           id?: string
           metadata?: Json | null
+          notes?: string | null
           paid_at?: string | null
           payment_date?: string | null
           payment_method?: Database["public"]["Enums"]["payment_method"]

@@ -26,6 +26,7 @@ export const PAYMENT_TYPE_LABELS: Record<string, string> = {
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: "Pendente",
   paid: "Pago",
+  completed: "Pago",
   overdue: "Atrasado",
   cancelled: "Cancelado",
   refunded: "Reembolsado",
@@ -234,8 +235,8 @@ export function exportPaymentsToExcel(
       ? format(new Date(payment.due_date), "dd/MM/yyyy", { locale: pt })
       : "N/A",
     "Estado": PAYMENT_STATUS_LABELS[payment.status] || payment.status,
-    "Data de Pagamento": payment.payment_date
-      ? format(new Date(payment.payment_date), "dd/MM/yyyy", { locale: pt })
+    "Data de Pagamento": payment.paid_at
+      ? format(new Date(payment.paid_at), "dd/MM/yyyy", { locale: pt })
       : "Não pago",
     "Método de Pagamento": payment.payment_method || "N/A",
     "Notas": payment.notes || "",

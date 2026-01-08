@@ -20,9 +20,11 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { paymentService } from "@/services/paymentService";
+import { bankAccountService } from "@/services/bankAccountService";
 import type { Database } from "@/integrations/supabase/types";
 
-type BookingPayment = Database["public"]["Tables"]["booking_payments"]["Row"];
+type BookingPayment = Database["public"]["Tables"]["payments"]["Row"];
+type BankAccount = Database["public"]["Tables"]["bank_accounts"]["Row"];
 
 interface MarkPaymentPaidDialogProps {
   open: boolean;
@@ -39,11 +41,29 @@ export function MarkPaymentPaidDialog({
 }: MarkPaymentPaidDialogProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [formData, setFormData] = useState({
     paid_date: new Date().toISOString().split("T")[0],
     payment_method: "cash" as string,
+    bank_account_id: "",
     notes: "",
   });
+
+  // Load bank accounts when dialog opens
+  React.useEffect(() => {
+    if (open) {
+      loadBankAccounts();
+    }
+  }, [open]);
+
+  const loadBankAccounts = async () => {
+    try {
+      const accounts = await bankAccountService.getActive();
+      setBankAccounts(accounts);
+    } catch (error) {
+      console.error("Error loading bank accounts:", error);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,7 +73,8 @@ export function MarkPaymentPaidDialog({
       payment.id,
       formData.paid_date,
       formData.payment_method,
-      formData.notes || undefined
+      formData.notes || undefined,
+      formData.bank_account_id || undefined
     );
 
     if (result.success) {
@@ -124,9 +145,35 @@ export function MarkPaymentPaidDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Dinheiro</SelectItem>
-                  <SelectItem value="transfer">Transferência Bancária</SelectItem>
-                  <SelectItem value="card">Cartão</SelectItem>
-                  <SelectItem value="mbway">MBWay</SelectItem>
+                  <SelectItem value="bank_transfer">Transferência Bancária</SelectItem>
+                  <SelectItem value="credit_card">Cartão de Crédito</SelectItem>
+                  <SelectItem value="debit_card">Cartão de Débito</SelectItem>
+                  <SelectItem value="mbway">MB WAY</SelectItem>
+                  <SelectItem value="other">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bank Account */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Conta Bancária *
+              </label>
+              <Select
+                value={formData.bank_account_id}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, bank_account_id: value })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione a conta bancária" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bankAccounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.name} ({account.bank_name})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

@@ -2,13 +2,13 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { PaymentWithDetails } from "@/types";
 
-type BookingPayment = Database["public"]["Tables"]["booking_payments"]["Row"];
-type BookingPaymentInsert = Database["public"]["Tables"]["booking_payments"]["Insert"];
+// Update to use 'payments' table instead of 'booking_payments'
+type BookingPayment = Database["public"]["Tables"]["payments"]["Row"];
+type PaymentMethod = "credit_card" | "debit_card" | "cash" | "bank_transfer" | "mbway" | "check" | "other";
 
 export const paymentService = {
   /**
    * Generate monthly payments for a booking
-   * Creates monthly payments + optional security deposit
    */
   async generatePaymentsForBooking(
     bookingId: string,
@@ -37,36 +37,38 @@ export const paymentService = {
       const baseDate = new Date(checkInDate);
       const payments = [];
 
-      // Generate monthly payments
-      for (let i = 0; i < numberOfInstallments; i++) {
-        const dueDate = new Date(baseDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
-
-        payments.push({
-          booking_id: bookingId,
-          amount: monthlyAmount,
-          due_date: dueDate.toISOString(),
-          payment_type: "monthly" as const,
-          status: "pending" as const,
-          bank_account_id: bankAccountId,
-        });
-      }
-
-      // Add security deposit if requested
+      // Add security deposit if requested (due on check-in date)
       if (includeDeposit && depositAmount > 0) {
         payments.push({
           booking_id: bookingId,
           amount: depositAmount,
           due_date: baseDate.toISOString(),
-          payment_type: "deposit" as const,
-          status: "pending" as const,
+          payment_type: "deposit",
+          status: "pending",
           bank_account_id: bankAccountId,
+          payment_method: "bank_transfer",
+        });
+      }
+
+      // Generate monthly payments (each due 30 days apart)
+      for (let i = 0; i < numberOfInstallments; i++) {
+        const dueDate = new Date(baseDate);
+        dueDate.setDate(dueDate.getDate() + (i * 30)); // Each payment due every 30 days
+
+        payments.push({
+          booking_id: bookingId,
+          amount: monthlyAmount,
+          due_date: dueDate.toISOString(),
+          payment_type: "monthly",
+          status: "pending",
+          bank_account_id: bankAccountId,
+          payment_method: "bank_transfer",
         });
       }
 
       const { error: insertError } = await supabase
         .from("payments")
-        .insert(payments);
+        .insert(payments as any);
 
       if (insertError) throw insertError;
 
@@ -86,13 +88,13 @@ export const paymentService = {
   async getBookingPayments(bookingId: string): Promise<BookingPayment[]> {
     try {
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select("*")
         .eq("booking_id", bookingId)
         .order("due_date", { ascending: true });
 
       if (error) throw error;
-      return data || [];
+      return data as BookingPayment[];
     } catch (error) {
       console.error("Error fetching payments:", error);
       return [];
@@ -100,22 +102,25 @@ export const paymentService = {
   },
 
   /**
-   * Mark payment as paid
+   * Mark a payment as paid
    */
   async markPaymentAsPaid(
     paymentId: string,
     paidDate: string,
     paymentMethod: string,
-    notes?: string
+    notes?: string,
+    bankAccountId?: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
       const { error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .update({
-          status: "paid",
-          paid_date: paidDate,
-          payment_method: paymentMethod,
-          notes: notes || null,
+          status: "completed",
+          paid_at: paidDate,
+          payment_method: paymentMethod as any,
+          notes: notes,
+          bank_account_id: bankAccountId,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", paymentId);
 
@@ -130,6 +135,11 @@ export const paymentService = {
     }
   },
 
+  // Alias for compatibility
+  async getByBookingId(bookingId: string) {
+    return this.getBookingPayments(bookingId);
+  },
+
   /**
    * Refund security deposit
    */
@@ -142,7 +152,7 @@ export const paymentService = {
     try {
       // Find the deposit payment
       const { data: depositPayment, error: fetchError } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select("*")
         .eq("booking_id", bookingId)
         .eq("payment_type", "deposit")
@@ -153,13 +163,16 @@ export const paymentService = {
         return { success: false, error: "Deposit payment not found" };
       }
 
+      // Convert date string to ISO timestamp
+      const refundTimestamp = new Date(refundDate).toISOString();
+
       // Mark deposit as refunded
       const { error: updateError } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .update({
           status: "refunded",
-          paid_date: refundDate,
-          payment_method: refundMethod,
+          paid_at: refundTimestamp,
+          payment_method: refundMethod as any,
           notes: notes || "Caução devolvida",
         })
         .eq("id", depositPayment.id);
@@ -168,17 +181,18 @@ export const paymentService = {
 
       // Create refund record
       const { error: insertError } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .insert({
           booking_id: bookingId,
           payment_type: "deposit_refund",
-          amount: -depositPayment.amount, // Negative amount for refund
+          amount: -depositPayment.amount,
           due_date: refundDate,
-          paid_date: refundDate,
-          status: "paid",
-          payment_method: refundMethod,
+          paid_at: refundTimestamp,
+          status: "completed",
+          payment_method: refundMethod as any,
           notes: notes || "Devolução de caução",
-        });
+          bank_account_id: depositPayment.bank_account_id,
+        } as any);
 
       if (insertError) throw insertError;
 
@@ -200,11 +214,11 @@ export const paymentService = {
   > {
     try {
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select(
           `
           *,
-          booking:bookings!booking_payments_booking_id_fkey (
+          booking:bookings!payments_booking_id_fkey (
             id,
             check_in_date,
             check_out_date,
@@ -238,21 +252,21 @@ export const paymentService = {
     total: number;
     paid: number;
     pending: number;
-    depositStatus: "pending" | "paid" | "refunded" | null;
+    depositStatus: "pending" | "completed" | "refunded" | null;
   }> {
     try {
       const payments = await this.getBookingPayments(bookingId);
 
       const total = payments.reduce((sum, p) => sum + p.amount, 0);
       const paid = payments
-        .filter((p) => p.status === "paid")
+        .filter((p) => p.status === "completed" && p.paid_at)
         .reduce((sum, p) => sum + p.amount, 0);
       const pending = payments
         .filter((p) => p.status === "pending")
         .reduce((sum, p) => sum + p.amount, 0);
 
       const deposit = payments.find((p) => p.payment_type === "deposit");
-      const depositStatus = deposit?.status || null;
+      const depositStatus = deposit?.status as "pending" | "completed" | "refunded" | null || null;
 
       return { total, paid, pending, depositStatus };
     } catch (error) {
@@ -267,7 +281,7 @@ export const paymentService = {
   async deleteBookingPayments(bookingId: string): Promise<{ success: boolean; error?: string }> {
     try {
       const { error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .delete()
         .eq("booking_id", bookingId);
 
@@ -291,11 +305,11 @@ export const paymentService = {
       const endDate = new Date(year, month, 0).toISOString().split("T")[0];
 
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select(
           `
           *,
-          booking:bookings!booking_payments_booking_id_fkey (
+          booking:bookings!payments_booking_id_fkey (
             id,
             check_in_date,
             check_out_date,
@@ -331,11 +345,11 @@ export const paymentService = {
   async getPaymentsByRoom(roomId: string) {
     try {
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select(
           `
           *,
-          booking:bookings!booking_payments_booking_id_fkey (
+          booking:bookings!payments_booking_id_fkey (
             id,
             room:rooms!bookings_room_id_fkey (
               room_number,
@@ -366,11 +380,11 @@ export const paymentService = {
   async getAllPaymentsWithDetails() {
     try {
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select(
           `
           *,
-          booking:bookings!booking_payments_booking_id_fkey (
+          booking:bookings!payments_booking_id_fkey (
             id,
             room:rooms!bookings_room_id_fkey (
               room_number,
@@ -407,7 +421,8 @@ export const paymentService = {
           guests!inner (
             id,
             full_name,
-            email
+            email,
+            tax_id
           ),
           rooms!inner (
             id,
