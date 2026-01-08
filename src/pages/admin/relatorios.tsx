@@ -20,6 +20,7 @@ import {
 import { bookingService } from "@/services/bookingService";
 import { expenseService } from "@/services/expenseService";
 import { roomService } from "@/services/roomService";
+import { extraRevenueService } from "@/services/extraRevenueService";
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval, subYears } from "date-fns";
 import { pt } from "date-fns/locale";
 
@@ -41,6 +42,7 @@ export default function RelatoriosPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
+  const [extraRevenues, setExtraRevenues] = useState<any[]>([]);
 
   useEffect(() => {
     loadData();
@@ -49,18 +51,20 @@ export default function RelatoriosPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [bookingsData, expensesData, roomsData] = await Promise.all([
+      const [bookingsData, expensesData, roomsData, extraRevenuesData] = await Promise.all([
         bookingService.getAll(),
         expenseService.getAll(),
         roomService.getAll(),
+        extraRevenueService.getAll(),
       ]);
 
       setBookings(bookingsData);
       setExpenses(expensesData);
       setRooms(roomsData);
+      setExtraRevenues(extraRevenuesData);
 
       // Calculate monthly stats
-      calculateMonthlyStats(bookingsData, expensesData, roomsData);
+      calculateMonthlyStats(bookingsData, expensesData, roomsData, extraRevenuesData);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -68,7 +72,7 @@ export default function RelatoriosPage() {
     }
   };
 
-  const calculateMonthlyStats = (bookings: any[], expenses: any[], rooms: any[]) => {
+  const calculateMonthlyStats = (bookings: any[], expenses: any[], rooms: any[], extraRevenues: any[]) => {
     const monthsToShow = parseInt(period);
     const endDate = new Date();
     const startDate = subMonths(startOfMonth(endDate), monthsToShow - 1);
@@ -85,16 +89,28 @@ export default function RelatoriosPage() {
         return checkIn >= monthStart && checkIn <= monthEnd;
       });
 
+      // Filter extra revenues for this month (including synced payments)
+      const monthExtraRevenues = extraRevenues.filter(r => {
+        const revenueDate = new Date(r.date);
+        return revenueDate >= monthStart && revenueDate <= monthEnd;
+      });
+
       // Filter expenses for this month
       const monthExpenses = expenses.filter(e => {
         const expenseDate = new Date(e.date);
         return expenseDate >= monthStart && expenseDate <= monthEnd;
       });
 
-      // Calculate revenue (only paid/completed bookings)
-      const revenue = monthBookings
+      // Calculate revenue from paid/completed bookings
+      const bookingRevenue = monthBookings
         .filter(b => b.status === "paid" || b.status === "completed")
         .reduce((sum, b) => sum + b.total_amount, 0);
+
+      // Calculate revenue from extra revenues (including synced payments)
+      const extraRevenue = monthExtraRevenues.reduce((sum, r) => sum + r.amount, 0);
+
+      // Total revenue = bookings + extra revenues
+      const revenue = bookingRevenue + extraRevenue;
 
       // Calculate expenses
       const totalExpenses = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -327,7 +343,7 @@ export default function RelatoriosPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {monthlyStats.map((stat, index) => {
+                    {monthlyStats.slice().reverse().map((stat, index) => {
                       const maxValue = Math.max(...monthlyStats.map(s => Math.max(s.revenue, s.expenses)));
                       const revenueWidth = (stat.revenue / maxValue) * 100;
                       const expenseWidth = (stat.expenses / maxValue) * 100;
@@ -448,11 +464,11 @@ export default function RelatoriosPage() {
                 <Card>
                   <CardHeader>
                     <CardTitle>ADR - Average Daily Rate</CardTitle>
-                    <CardDescription>Receita média por noite ocupada</CardDescription>
+                    <CardDescription>Receita média por noite ocupada (não mensal)</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {monthlyStats.map((stat, index) => (
+                      {monthlyStats.slice().reverse().map((stat, index) => (
                         <div key={index} className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">{stat.month}</span>
                           <span className="font-semibold">€{stat.adr.toFixed(2)}</span>
@@ -475,7 +491,7 @@ export default function RelatoriosPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {monthlyStats.map((stat, index) => (
+                      {monthlyStats.slice().reverse().map((stat, index) => (
                         <div key={index} className="flex items-center justify-between">
                           <span className="text-sm text-muted-foreground">{stat.month}</span>
                           <span className="font-semibold">€{stat.revpar.toFixed(2)}</span>
@@ -499,7 +515,7 @@ export default function RelatoriosPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {monthlyStats.map((stat, index) => {
+                    {monthlyStats.slice().reverse().map((stat, index) => {
                       const maxOccupancy = Math.max(...monthlyStats.map(s => s.occupancyRate));
                       const width = (stat.occupancyRate / maxOccupancy) * 100;
 

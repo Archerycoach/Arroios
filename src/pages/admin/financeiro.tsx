@@ -20,6 +20,7 @@ import { bookingService } from "@/services/bookingService";
 import { expenseService } from "@/services/expenseService";
 import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
+import { extraRevenueService } from "@/services/extraRevenueService";
 
 export default function FinanceiroPage() {
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
@@ -28,6 +29,7 @@ export default function FinanceiroPage() {
   const [profit, setProfit] = useState(0);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [previousRevenue, setPreviousRevenue] = useState(0);
 
   useEffect(() => {
     loadFinancialData();
@@ -38,19 +40,72 @@ export default function FinanceiroPage() {
       setLoading(true);
       const cutoffDate = subMonths(new Date(), period);
       
-      // Load bookings for revenue
-      const bookings = await bookingService.getAll();
-      const paidBookings = bookings.filter(b => {
-        const isValidStatus = b.status === "paid" || b.status === "completed";
-        const isInPeriod = new Date(b.created_at) >= cutoffDate;
-        return isValidStatus && isInPeriod;
+      console.log('=== FINANCIAL DATA DEBUG ===');
+      console.log('Period:', period, 'months');
+      console.log('Cutoff date:', cutoffDate.toISOString());
+      
+      // Load all extra revenues (includes payments synced from bookings)
+      const allExtraRevenues = await extraRevenueService.getAll();
+      console.log('Total extra revenues in database:', allExtraRevenues.length);
+      
+      // Filter revenues by date
+      const revenuesInPeriod = allExtraRevenues.filter(r => {
+        const revenueDate = new Date(r.date);
+        const isInPeriod = revenueDate >= cutoffDate && revenueDate <= new Date();
+        
+        if (isInPeriod) {
+          console.log(`Revenue ${r.id}:`, {
+            date: revenueDate.toISOString(),
+            amount: r.amount,
+            type: r.type,
+            description: r.description
+          });
+        }
+        
+        return isInPeriod;
       });
-      const totalRevenue = paidBookings.reduce((sum, b) => sum + b.total_amount, 0);
+      
+      console.log('Revenues in current period:', revenuesInPeriod.length);
+      
+      // Separate booking-related revenues (Mensalidades, Cauções) from true extra revenues
+      const bookingRevenues = revenuesInPeriod.filter(r => 
+        r.type === "Mensalidades" || r.type === "Cauções"
+      );
+      const extraRevenues = revenuesInPeriod.filter(r => 
+        r.type !== "Mensalidades" && r.type !== "Cauções"
+      );
+      
+      const bookingRevenueTotal = bookingRevenues.reduce((sum, r) => sum + r.amount, 0);
+      const extraRevenueTotal = extraRevenues.reduce((sum, r) => sum + r.amount, 0);
+      
+      console.log('Booking revenues (Mensalidades + Cauções):', bookingRevenueTotal);
+      console.log('Extra revenues (others):', extraRevenueTotal);
+      
+      // Total revenue = booking revenues + extra revenues
+      const totalRevenue = bookingRevenueTotal + extraRevenueTotal;
+      console.log('TOTAL REVENUE:', totalRevenue);
+      
+      // Calculate previous period for comparison
+      const previousCutoffDate = subMonths(cutoffDate, period);
+      const previousRevenues = allExtraRevenues.filter(r => {
+        const revenueDate = new Date(r.date);
+        return revenueDate >= previousCutoffDate && revenueDate < cutoffDate;
+      });
+      
+      const prevTotalRevenue = previousRevenues.reduce((sum, r) => sum + r.amount, 0);
+      console.log('Previous period revenue:', prevTotalRevenue);
+      setPreviousRevenue(prevTotalRevenue);
       
       // Load expenses
       const expensesData = await expenseService.getAll();
-      const filteredExpenses = expensesData.filter((e: any) => new Date(e.date) >= cutoffDate);
+      const filteredExpenses = expensesData.filter((e: any) => {
+        const expenseDate = new Date(e.date);
+        return expenseDate >= cutoffDate && expenseDate <= new Date();
+      });
       const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+      
+      console.log('Total expenses:', totalExpenses);
+      console.log('=== END DEBUG ===');
       
       setRevenue(totalRevenue);
       setExpenses(totalExpenses);
@@ -58,13 +113,13 @@ export default function FinanceiroPage() {
       
       // Combine transactions
       const allTransactions = [
-        ...paidBookings.map(b => ({
-          id: b.id,
+        ...revenuesInPeriod.map(r => ({
+          id: r.id,
           type: "revenue" as const,
-          description: `Reserva #${b.id.slice(0, 8)}`,
-          amount: b.total_amount,
-          date: b.created_at,
-          status: b.status,
+          description: r.description,
+          amount: r.amount,
+          date: r.date,
+          category: r.type || "Receita",
         })),
         ...filteredExpenses.map(e => ({
           id: e.id,
@@ -92,6 +147,11 @@ export default function FinanceiroPage() {
   };
 
   const profitMargin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : "0";
+  
+  // Calculate revenue growth
+  const revenueGrowth = previousRevenue > 0 
+    ? (((revenue - previousRevenue) / previousRevenue) * 100).toFixed(1)
+    : revenue > 0 ? "100" : "0";
 
   if (loading) {
     return (
@@ -142,11 +202,20 @@ export default function FinanceiroPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(revenue)}</div>
-              <p className="text-xs text-muted-foreground flex items-center mt-1">
-                <TrendingUp className="h-3 w-3 mr-1 text-green-500" />
-                <span className="text-green-500">+12.5%</span>
-                <span className="ml-1">vs mês anterior</span>
-              </p>
+              <div className="text-xs text-muted-foreground flex items-center mt-1">
+                {parseFloat(revenueGrowth) >= 0 ? (
+                  <>
+                    <TrendingUp className="h-3 w-3 mr-1 text-green-500" />
+                    <span className="text-green-500">+{revenueGrowth}%</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-3 w-3 mr-1 text-red-500" />
+                    <span className="text-red-500">{revenueGrowth}%</span>
+                  </>
+                )}
+                <span className="ml-1">vs período anterior</span>
+              </div>
             </CardContent>
           </Card>
 
@@ -157,11 +226,9 @@ export default function FinanceiroPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(expenses)}</div>
-              <p className="text-xs text-muted-foreground flex items-center mt-1">
-                <TrendingDown className="h-3 w-3 mr-1 text-red-500" />
-                <span className="text-red-500">+8.2%</span>
-                <span className="ml-1">vs mês anterior</span>
-              </p>
+              <div className="text-xs text-muted-foreground mt-1">
+                {period} {period === 1 ? "mês" : "meses"}
+              </div>
             </CardContent>
           </Card>
 
@@ -172,11 +239,9 @@ export default function FinanceiroPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(profit)}</div>
-              <p className="text-xs text-muted-foreground flex items-center mt-1">
-                <TrendingUp className="h-3 w-3 mr-1 text-green-500" />
-                <span className="text-green-500">+15.3%</span>
-                <span className="ml-1">vs mês anterior</span>
-              </p>
+              <div className="text-xs text-muted-foreground mt-1">
+                Margem: {profitMargin}%
+              </div>
             </CardContent>
           </Card>
 
@@ -187,9 +252,9 @@ export default function FinanceiroPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{profitMargin}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 Percentagem de receita
-              </p>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -204,46 +269,52 @@ export default function FinanceiroPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {transactions.map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-full ${
-                      transaction.type === "revenue" 
-                        ? "bg-green-500/10 text-green-500" 
-                        : "bg-red-500/10 text-red-500"
-                    }`}>
-                      {transaction.type === "revenue" ? (
-                        <ArrowUpRight className="h-4 w-4" />
-                      ) : (
-                        <ArrowDownRight className="h-4 w-4" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-medium">{transaction.description}</p>
-                      <p className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Calendar className="h-3 w-3" />
-                        {format(new Date(transaction.date), "dd MMM yyyy", { locale: pt })}
-                        {transaction.category && (
-                          <>
-                            <span>•</span>
-                            <Badge variant="outline" className="text-xs">
-                              {transaction.category}
-                            </Badge>
-                          </>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className={`text-lg font-semibold ${
-                    transaction.amount > 0 ? "text-green-500" : "text-red-500"
-                  }`}>
-                    {formatCurrency(Math.abs(transaction.amount))}
-                  </div>
+              {transactions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  Nenhuma transação encontrada para o período selecionado
                 </div>
-              ))}
+              ) : (
+                transactions.map((transaction) => (
+                  <div
+                    key={transaction.id}
+                    className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`p-2 rounded-full ${
+                        transaction.type === "revenue" 
+                          ? "bg-green-500/10 text-green-500" 
+                          : "bg-red-500/10 text-red-500"
+                      }`}>
+                        {transaction.type === "revenue" ? (
+                          <ArrowUpRight className="h-4 w-4" />
+                        ) : (
+                          <ArrowDownRight className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-medium">{transaction.description}</div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          <Calendar className="h-3 w-3" />
+                          {format(new Date(transaction.date), "dd MMM yyyy", { locale: pt })}
+                          {transaction.category && (
+                            <>
+                              <span>•</span>
+                              <Badge variant="outline" className="text-xs">
+                                {transaction.category}
+                              </Badge>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={`text-lg font-semibold ${
+                      transaction.amount > 0 ? "text-green-500" : "text-red-500"
+                    }`}>
+                      {formatCurrency(Math.abs(transaction.amount))}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>

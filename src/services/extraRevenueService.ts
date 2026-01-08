@@ -124,7 +124,7 @@ export const extraRevenueService = {
     const totals: Record<string, number> = {};
 
     revenues.forEach((revenue) => {
-      const category = revenue.category || "Outros";
+      const category = revenue.type || "Outros";
       totals[category] = (totals[category] || 0) + revenue.amount;
     });
 

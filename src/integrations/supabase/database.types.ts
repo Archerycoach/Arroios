@@ -571,35 +571,51 @@ export type Database = {
       extra_revenues: {
         Row: {
           amount: number
+          bank_account_id: string | null
           booking_id: string | null
           created_at: string | null
           date: string
           description: string
           id: string
+          notes: string | null
+          payment_method: string | null
           type: string
           updated_at: string | null
         }
         Insert: {
           amount: number
+          bank_account_id?: string | null
           booking_id?: string | null
           created_at?: string | null
           date: string
           description: string
           id?: string
+          notes?: string | null
+          payment_method?: string | null
           type: string
           updated_at?: string | null
         }
         Update: {
           amount?: number
+          bank_account_id?: string | null
           booking_id?: string | null
           created_at?: string | null
           date?: string
           description?: string
           id?: string
+          notes?: string | null
+          payment_method?: string | null
           type?: string
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "extra_revenues_bank_account_id_fkey"
+            columns: ["bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "extra_revenues_booking_id_fkey"
             columns: ["booking_id"]

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Calendar, DollarSign, Users, BedDouble, TrendingUp } from "lucide-react";
 import { bookingService, BookingWithDetails } from "@/services/bookingService";
-import { format, subMonths, isAfter } from "date-fns";
+import { format, subMonths, isAfter, isBefore, isWithinInterval } from "date-fns";
 import { pt } from "date-fns/locale";
 
 type PeriodOption = "1" | "3" | "6" | "12";
@@ -51,16 +51,17 @@ export default function AdminDashboard() {
 
   // Calculate stats based on filtered bookings
   const activeBookings = filteredBookings.filter(
-    b => b.status === "confirmed" || b.status === "pending"
+    b => b.status === "confirmed" || b.status === "pending" || b.status === "paid"
   ).length;
 
   const todayCheckIns = filteredBookings.filter(b => 
     new Date(b.check_in_date).toDateString() === new Date().toDateString()
   ).length;
 
+  // Calculate revenue from ALL non-cancelled bookings (considering total_amount)
   const totalRevenue = filteredBookings
-    .filter(b => b.status === "paid" || b.status === "completed")
-    .reduce((sum, b) => sum + b.total_amount, 0);
+    .filter(b => b.status !== "cancelled" && b.status !== "no_show")
+    .reduce((sum, b) => sum + (b.total_amount || 0), 0);
 
   // Calculate previous period for growth comparison
   const getPreviousPeriodGrowth = () => {
@@ -73,19 +74,33 @@ export default function AdminDashboard() {
         const date = new Date(b.created_at);
         return isAfter(date, previousPeriodStart) && !isAfter(date, previousPeriodEnd);
       })
-      .filter(b => b.status === "paid" || b.status === "completed")
-      .reduce((sum, b) => sum + b.total_amount, 0);
+      .filter(b => b.status !== "cancelled" && b.status !== "no_show")
+      .reduce((sum, b) => sum + (b.total_amount || 0), 0);
 
-    if (previousRevenue === 0) return 0;
+    if (previousRevenue === 0) return totalRevenue > 0 ? 100 : 0;
     const growth = ((totalRevenue - previousRevenue) / previousRevenue) * 100;
     return growth;
   };
 
   const growthPercentage = getPreviousPeriodGrowth();
 
-  // Get active/occupied rooms for display
+  // Get currently occupied rooms (check-in date passed, check-out date not yet passed)
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
   const occupiedRooms = filteredBookings
-    .filter(b => b.status === "confirmed" || b.status === "pending")
+    .filter(b => {
+      if (b.status === "cancelled" || b.status === "no_show") return false;
+      
+      const checkIn = new Date(b.check_in_date);
+      const checkOut = new Date(b.check_out_date);
+      checkIn.setHours(0, 0, 0, 0);
+      checkOut.setHours(0, 0, 0, 0);
+      
+      // Currently occupied: check-in has passed and check-out hasn't happened yet
+      return (isBefore(checkIn, today) || checkIn.getTime() === today.getTime()) && 
+             isAfter(checkOut, today);
+    })
     .slice(0, 10);
 
   const periodLabels: Record<PeriodOption, string> = {
@@ -93,6 +108,32 @@ export default function AdminDashboard() {
     "3": "Últimos 3 meses",
     "6": "Últimos 6 meses",
     "12": "Último ano"
+  };
+
+  // Get status label in Portuguese
+  const getStatusLabel = (status: string) => {
+    const statusMap: Record<string, string> = {
+      confirmed: "Confirmada",
+      pending: "Pendente",
+      paid: "Paga",
+      completed: "Completa",
+      cancelled: "Cancelada",
+      no_show: "Não compareceu"
+    };
+    return statusMap[status] || status;
+  };
+
+  // Get status color
+  const getStatusColor = (status: string) => {
+    const colorMap: Record<string, string> = {
+      confirmed: "bg-blue-500",
+      pending: "bg-yellow-500",
+      paid: "bg-green-500",
+      completed: "bg-green-600",
+      cancelled: "bg-red-500",
+      no_show: "bg-gray-500"
+    };
+    return colorMap[status] || "bg-gray-500";
   };
 
   if (loading) {
@@ -155,7 +196,7 @@ export default function AdminDashboard() {
             <CardContent>
               <div className="text-2xl font-bold">€{totalRevenue.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">
-                Reservas pagas e completas
+                Reservas ativas no período
               </p>
             </CardContent>
           </Card>
@@ -221,10 +262,8 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                     
-                    <Badge className={
-                      booking.status === "confirmed" ? "bg-blue-500" : "bg-yellow-500"
-                    }>
-                      {booking.status === "confirmed" ? "Confirmada" : "Pendente"}
+                    <Badge className={getStatusColor(booking.status)}>
+                      {getStatusLabel(booking.status)}
                     </Badge>
                   </div>
                 ))}

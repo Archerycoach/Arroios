@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { PaymentWithDetails } from "@/types";
+import { extraRevenueService } from "./extraRevenueService";
 
 // Update to use 'payments' table instead of 'booking_payments'
 type BookingPayment = Database["public"]["Tables"]["payments"]["Row"];
@@ -112,6 +113,27 @@ export const paymentService = {
     bankAccountId?: string
   ): Promise<{ success: boolean; error?: string }> {
     try {
+      // First, get the payment details to create revenue
+      const { data: payment, error: fetchError } = await supabase
+        .from("payments")
+        .select(`
+          *,
+          bookings!inner (
+            id,
+            booking_number,
+            room_id,
+            rooms!inner (
+              name,
+              room_number
+            )
+          )
+        `)
+        .eq("id", paymentId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update payment status
       const { error } = await supabase
         .from("payments")
         .update({
@@ -125,6 +147,31 @@ export const paymentService = {
         .eq("id", paymentId);
 
       if (error) throw error;
+
+      // Create revenue entry automatically
+      const booking = Array.isArray(payment.bookings) ? payment.bookings[0] : payment.bookings;
+      const room = booking?.rooms;
+      
+      const paymentTypeLabel = payment.payment_type === "deposit" 
+        ? "Caução" 
+        : payment.payment_type === "monthly" 
+        ? "Mensalidade" 
+        : "Pagamento";
+
+      const description = `${paymentTypeLabel} - Reserva #${booking?.booking_number || payment.booking_id} - ${room?.name || ''} (Quarto ${room?.room_number || ''})`;
+
+      // Create the revenue record
+      await extraRevenueService.create({
+        booking_id: payment.booking_id,
+        amount: payment.amount,
+        date: paidDate,
+        type: payment.payment_type === "deposit" ? "Cauções" : "Mensalidades",
+        description: description,
+        payment_method: paymentMethod,
+        bank_account_id: bankAccountId || null,
+        notes: notes || null,
+      });
+
       return { success: true };
     } catch (error) {
       console.error("Error marking payment as paid:", error);
@@ -494,5 +541,110 @@ export const paymentService = {
       // Ensure payment_type is treated as string if missing in types but present in DB
       payment_type: (data as any).payment_type || "other",
     } as unknown as PaymentWithDetails;
+  },
+
+  /**
+   * Migrate existing completed payments to revenues
+   */
+  async syncPaymentsToRevenues(): Promise<{
+    success: boolean;
+    message: string;
+    synced: number;
+    skipped: number;
+    errors: number;
+  }> {
+    let synced = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    try {
+      // 1. Fetch all completed payments
+      const { data: payments, error: fetchError } = await supabase
+        .from("payments")
+        .select(`
+          *,
+          bookings!inner (
+            id,
+            booking_number,
+            room_id,
+            rooms!inner (
+              name,
+              room_number
+            )
+          )
+        `)
+        .eq("status", "completed");
+
+      if (fetchError) throw fetchError;
+
+      // 2. Fetch all existing revenues to avoid duplicates
+      // We'll match by booking_id, amount and date (approximate)
+      const { data: existingRevenues } = await supabase
+        .from("extra_revenues")
+        .select("booking_id, amount, date, type");
+
+      // 3. Process each payment
+      for (const payment of payments || []) {
+        try {
+          // Check if already exists
+          const exists = existingRevenues?.some(
+            (rev) =>
+              rev.booking_id === payment.booking_id &&
+              Math.abs(rev.amount - payment.amount) < 0.01 && // Compare amounts with tolerance
+              rev.date === payment.paid_at?.split("T")[0] // Compare date part
+          );
+
+          if (exists) {
+            skipped++;
+            continue;
+          }
+
+          const booking = Array.isArray(payment.bookings) ? payment.bookings[0] : payment.bookings;
+          const room = booking?.rooms;
+
+          const paymentTypeLabel = payment.payment_type === "deposit"
+            ? "Caução"
+            : payment.payment_type === "monthly"
+            ? "Mensalidade"
+            : "Pagamento";
+
+          const description = `${paymentTypeLabel} - Reserva #${booking?.booking_number || payment.booking_id} - ${room?.name || ""} (Quarto ${room?.room_number || ""})`;
+
+          // Create the revenue record
+          await extraRevenueService.create({
+            booking_id: payment.booking_id,
+            amount: payment.amount,
+            date: payment.paid_at || new Date().toISOString(),
+            type: payment.payment_type === "deposit" ? "Cauções" : "Mensalidades",
+            description: description,
+            payment_method: payment.payment_method,
+            bank_account_id: payment.bank_account_id || null,
+            notes: payment.notes || null,
+          });
+
+          synced++;
+        } catch (err) {
+          console.error(`Error syncing payment ${payment.id}:`, err);
+          errors++;
+        }
+      }
+
+      return {
+        success: true,
+        message: "Sincronização concluída com sucesso",
+        synced,
+        skipped,
+        errors,
+      };
+    } catch (error) {
+      console.error("Error syncing payments to revenues:", error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : "Erro desconhecido",
+        synced,
+        skipped,
+        errors,
+      };
+    }
   },
 };
