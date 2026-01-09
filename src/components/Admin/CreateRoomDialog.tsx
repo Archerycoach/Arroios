@@ -53,7 +53,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
     is_available: true,
     amenities: [],
     images: [],
-    bank_account_id: "",
+    bank_account_id: "none",
   });
 
   // Fetch property_id and bank accounts on mount
@@ -96,7 +96,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         is_available: editRoom.is_available,
         amenities: editRoom.amenities || [],
         images: editRoom.images || [],
-        bank_account_id: editRoom.bank_account_id || "",
+        bank_account_id: editRoom.bank_account_id || "none",
       });
     } else {
       setFormData({
@@ -112,7 +112,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         is_available: true,
         amenities: [],
         images: [],
-        bank_account_id: "",
+        bank_account_id: "none",
       });
     }
   }, [editRoom, open]);
@@ -131,7 +131,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
       amenities: [],
       description: "",
       images: [],
-      bank_account_id: "",
+      bank_account_id: "none",
     });
   };
 
@@ -179,7 +179,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
         is_available: formData.is_available,
         amenities: formData.amenities,
         images: editRoom?.images || [],
-        bank_account_id: formData.bank_account_id || null,
+        bank_account_id: formData.bank_account_id === "none" ? null : formData.bank_account_id,
       };
 
       if (editRoom) {
@@ -274,7 +274,7 @@ export function CreateRoomDialog({ open, onOpenChange, onSuccess, editRoom }: Cr
                   <SelectValue placeholder="Selecione a conta bancária (opcional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma conta associada</SelectItem>
+                  <SelectItem value="none">Nenhuma conta associada</SelectItem>
                   {bankAccounts.map((account) => (
                     <SelectItem key={account.id} value={account.id}>
                       {account.name} {account.bank_name ? `(${account.bank_name})` : ""}

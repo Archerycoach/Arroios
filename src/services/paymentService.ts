@@ -544,6 +544,58 @@ export const paymentService = {
   },
 
   /**
+   * Update pending payment amounts for a booking (when monthly value changes)
+   */
+  async updatePendingPaymentAmounts(
+    bookingId: string,
+    newMonthlyAmount: number
+  ): Promise<{ success: boolean; updated: number; error?: string }> {
+    try {
+      // Get all pending monthly payments for this booking
+      const { data: pendingPayments, error: fetchError } = await supabase
+        .from("payments")
+        .select("*")
+        .eq("booking_id", bookingId)
+        .eq("status", "pending")
+        .eq("payment_type", "monthly")
+        .order("due_date", { ascending: true });
+
+      if (fetchError) throw fetchError;
+
+      if (!pendingPayments || pendingPayments.length === 0) {
+        return { success: true, updated: 0 };
+      }
+
+      // Update each pending payment with the new amount
+      let updated = 0;
+      for (const payment of pendingPayments) {
+        const { error: updateError } = await supabase
+          .from("payments")
+          .update({
+            amount: newMonthlyAmount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", payment.id);
+
+        if (updateError) {
+          console.error(`Error updating payment ${payment.id}:`, updateError);
+        } else {
+          updated++;
+        }
+      }
+
+      return { success: true, updated };
+    } catch (error) {
+      console.error("Error updating pending payment amounts:", error);
+      return {
+        success: false,
+        updated: 0,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  },
+
+  /**
    * Migrate existing completed payments to revenues
    */
   async syncPaymentsToRevenues(): Promise<{

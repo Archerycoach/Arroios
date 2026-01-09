@@ -16,6 +16,7 @@ import { bookingService, BookingWithDetails } from "@/services/bookingService";
 import { paymentService } from "@/services/paymentService";
 import { supabase } from "@/integrations/supabase/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { calculateBookingPeriods } from "@/lib/dataUtils";
 
 interface CreateBookingDialogProps {
   open: boolean;
@@ -34,6 +35,10 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
   const [dateConflictError, setDateConflictError] = useState<string>("");
   const [includeDeposit, setIncludeDeposit] = useState(true);
   const [depositAmount, setDepositAmount] = useState("");
+  const [monthlyValue, setMonthlyValue] = useState("");
+  const [numberOfMonths, setNumberOfMonths] = useState(0);
+  const [priceBreakdown, setPriceBreakdown] = useState<string[]>([]);
+  const [paymentStats, setPaymentStats] = useState({ paid: 0, pendingMonthlyCount: 0, otherPending: 0 });
   
   const [formData, setFormData] = useState({
     guest_id: "",
@@ -58,27 +63,56 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
 
   useEffect(() => {
     if (open) {
-      loadData();
-      setDateConflictError("");
+      const initializeDialog = async () => {
+        // First, load all required data
+        await loadData();
+        setDateConflictError("");
+        
+        if (editBooking) {
+          // Now that data is loaded, fill the form
+          setFormData({
+            guest_id: editBooking.guest_id,
+            room_id: editBooking.room_id,
+            check_in_date: editBooking.check_in_date.split('T')[0],
+            check_out_date: editBooking.check_out_date.split('T')[0],
+            custom_price: editBooking.total_amount?.toString() || "",
+            pricing_mode: editBooking.payment_type === "monthly" || editBooking.payment_type === "biweekly" 
+              ? editBooking.payment_type 
+              : "manual",
+            status: "confirmed",
+            special_requests: editBooking.special_notes || "",
+          });
+          setIncludeDeposit(false);
+          
+          // Load payment stats and calculate values
+          const actualMonthlyAmount = await loadPaymentStats(editBooking.id);
+          
+          // Find the room from loaded data
+          const roomsData = await roomService.getAll();
+          const selectedRoom = roomsData.find(r => r.id === editBooking.room_id);
+          
+          if (selectedRoom) {
+            const checkIn = new Date(editBooking.check_in_date);
+            const checkOut = new Date(editBooking.check_out_date);
+            const calculation = calculateBookingPeriods(checkIn, checkOut, selectedRoom.monthly_price);
+            
+            setNumberOfMonths(calculation.monthlyEquivalent);
+            setPriceBreakdown(calculation.breakdown);
+            
+            // Prioritize actual monthly amount from pending payments
+            // If no pending payments, fall back to room price (as requested)
+            if (actualMonthlyAmount) {
+              setMonthlyValue(actualMonthlyAmount.toFixed(2));
+            } else {
+              setMonthlyValue(selectedRoom.monthly_price.toFixed(2));
+            }
+          }
+        } else {
+          resetForm();
+        }
+      };
       
-      if (editBooking) {
-        // Preencher formulário com dados da reserva existente
-        setFormData({
-          guest_id: editBooking.guest_id,
-          room_id: editBooking.room_id,
-          check_in_date: editBooking.check_in_date.split('T')[0],
-          check_out_date: editBooking.check_out_date.split('T')[0],
-          custom_price: editBooking.total_amount?.toString() || "",
-          pricing_mode: editBooking.payment_type === "monthly" || editBooking.payment_type === "biweekly" 
-            ? editBooking.payment_type 
-            : "manual",
-          status: "confirmed", // Mantém estado ou usa confirmed como base
-          special_requests: editBooking.special_notes || "",
-        });
-        setIncludeDeposit(false); // Edição normalmente não re-aciona depósito
-      } else {
-        resetForm();
-      }
+      initializeDialog();
     }
   }, [open, editBooking]);
 
@@ -99,29 +133,51 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
 
       const checkIn = new Date(formData.check_in_date);
       const checkOut = new Date(formData.check_out_date);
-      const days = differenceInDays(checkOut, checkIn);
 
-      if (days <= 0) return;
+      if (checkOut <= checkIn) return;
 
-      let calculatedPrice = 0;
+      // Use new calendar-based calculation
+      const calculation = calculateBookingPeriods(checkIn, checkOut, selectedRoom.monthly_price);
       
-      if (formData.pricing_mode === "monthly") {
-        // Calculate complete 15-day periods
-        const complete15DayPeriods = Math.floor(days / 15);
-        const completeMonths = Math.floor(complete15DayPeriods / 2);
-        const remaining15DayPeriods = complete15DayPeriods % 2;
-        const biweeklyPrice = selectedRoom.monthly_price / 2;
-        
-        calculatedPrice = (completeMonths * selectedRoom.monthly_price) + (remaining15DayPeriods * biweeklyPrice);
-      } else if (formData.pricing_mode === "biweekly") {
-        const biweeklyPrice = selectedRoom.monthly_price / 2;
-        const complete15DayPeriods = Math.floor(days / 15);
-        calculatedPrice = complete15DayPeriods * biweeklyPrice;
+      setFormData(prev => ({ ...prev, custom_price: calculation.totalPrice.toFixed(2) }));
+      setPriceBreakdown(calculation.breakdown);
+      
+      // Set monthly value for payment generation
+      if (!editBooking && calculation.monthlyEquivalent > 0) {
+        setMonthlyValue((calculation.totalPrice / calculation.monthlyEquivalent).toFixed(2));
+        setNumberOfMonths(calculation.monthlyEquivalent);
       }
-
-      setFormData(prev => ({ ...prev, custom_price: calculatedPrice.toFixed(2) }));
     }
-  }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.pricing_mode, rooms]);
+  }, [formData.room_id, formData.check_in_date, formData.check_out_date, formData.pricing_mode, rooms, editBooking]);
+
+  // Update total price when monthly value changes (for editing)
+  useEffect(() => {
+    if (editBooking && monthlyValue) {
+      const monthly = parseFloat(monthlyValue);
+      
+      // Only recalculate if we have a valid number and stats loaded
+      if (!isNaN(monthly)) {
+        let newTotal: number;
+        
+        // If we have pending monthly payments, use them for calculation
+        if (paymentStats.pendingMonthlyCount > 0) {
+           newTotal = paymentStats.paid + paymentStats.otherPending + (monthly * paymentStats.pendingMonthlyCount);
+        } else if (numberOfMonths > 0) {
+           // Fallback if no specific payment stats (rare case or new booking being edited before payments generated)
+           newTotal = monthly * numberOfMonths;
+        } else {
+          return; // Don't update if we can't calculate
+        }
+        
+        const newTotalString = newTotal.toFixed(2);
+        
+        // Only update if the value actually changed (prevent infinite loop)
+        if (formData.custom_price !== newTotalString) {
+          setFormData(prev => ({ ...prev, custom_price: newTotalString }));
+        }
+      }
+    }
+  }, [monthlyValue, paymentStats.pendingMonthlyCount, paymentStats.paid, paymentStats.otherPending, numberOfMonths, editBooking]);
 
   // Initialize deposit amount when room is selected
   useEffect(() => {
@@ -145,6 +201,45 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
       setAllBookings(bookingsData.filter(b => b.status !== "cancelled" && b.id !== editBooking?.id));
     } catch (error) {
       console.error("Error loading data:", error);
+    }
+  };
+
+  const loadPaymentStats = async (bookingId: string) => {
+    try {
+      const { data: payments, error } = await supabase
+        .from("payments")
+        .select("amount, status, payment_type")
+        .eq("booking_id", bookingId);
+
+      if (error) throw error;
+
+      if (payments) {
+        const paid = payments
+          .filter(p => p.status === "completed")
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        const pendingMonthly = payments
+          .filter(p => p.status === "pending" && p.payment_type === "monthly");
+
+        const otherPending = payments
+          .filter(p => p.status === "pending" && p.payment_type !== "monthly")
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        setPaymentStats({
+          paid,
+          pendingMonthlyCount: pendingMonthly.length,
+          otherPending
+        });
+        
+        // Find current monthly amount from pending payments if available
+        if (pendingMonthly.length > 0) {
+          return pendingMonthly[0].amount;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error("Error loading payment stats:", error);
+      return null;
     }
   };
 
@@ -283,10 +378,22 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
       if (editBooking) {
         // UPDATE
         await bookingService.update(editBooking.id, bookingData);
-        toast({
-          title: "Reserva atualizada",
-          description: "A reserva foi atualizada com sucesso.",
-        });
+        
+        // Update pending monthly payments with new monthly value
+        if (monthlyValue && parseFloat(monthlyValue) > 0) {
+          const newMonthlyAmount = parseFloat(monthlyValue);
+          const updatedCount = await paymentService.updatePendingPaymentAmounts(editBooking.id, newMonthlyAmount);
+          
+          toast({
+            title: "Reserva atualizada",
+            description: `A reserva foi atualizada. ${updatedCount} pagamento(s) pendente(s) foram atualizados com o novo valor mensal.`,
+          });
+        } else {
+          toast({
+            title: "Reserva atualizada",
+            description: "A reserva foi atualizada com sucesso.",
+          });
+        }
       } else {
         // CREATE
         const userResponse = await supabase.auth.getUser();
@@ -301,24 +408,15 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
         const createdBooking = await bookingService.create(newBookingData);
 
         if (createdBooking && createdBooking.id) {
-           // Só gera pagamentos se for nova reserva e tiver caução selecionada
-           if (includeDeposit) { // Note: variable name kept as includeDeposit based on previous code, but logic inside generates payments
-            const days = differenceInDays(checkOut, checkIn);
-            // Calculate number of 15-day periods
-            const complete15DayPeriods = Math.floor(days / 15);
-            // Each month = 2 periods of 15 days, so number of payments = (periods / 2) rounded up
-            const numberOfInstallments = Math.ceil(complete15DayPeriods / 2);
-            
-            // Each monthly installment should be the total divided by number of months
-            const monthlyAmount = numberOfInstallments > 0 ? totalAmount / numberOfInstallments : totalAmount;
+           if (includeDeposit || numberOfMonths > 0) {
+            const monthlyAmount = numberOfMonths > 0 ? totalAmount / numberOfMonths : totalAmount;
 
-            // Generate payments with proper monthly amounts
             await paymentService.generatePaymentsForBooking(
               createdBooking.id,
               monthlyAmount,
-              numberOfInstallments,
+              numberOfMonths,
               formData.check_in_date,
-              includeDeposit, // This passes the boolean to include a separate deposit payment
+              includeDeposit,
               depositAmount ? parseFloat(depositAmount) : 0
             );
            }
@@ -359,6 +457,9 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     setDateConflictError("");
     setIncludeDeposit(true);
     setDepositAmount("");
+    setMonthlyValue("");
+    setNumberOfMonths(0);
+    setPriceBreakdown([]);
   };
 
   const selectedRoom = rooms.find(r => r.id === formData.room_id);
@@ -393,7 +494,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
               <SelectContent>
                 {rooms.map((room) => (
                   <SelectItem key={room.id} value={room.id}>
-                    Quarto {room.room_number || room.name} - {room.room_type} (€{room.base_price}/dia)
+                    Quarto {room.room_number || room.name} - {room.room_type} (€{room.monthly_price}/mês)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -539,7 +640,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
           )}
 
           {/* Price Section */}
-          {selectedRoom && (
+          {selectedRoom && formData.check_in_date && formData.check_out_date && (
             <div className="rounded-lg border bg-muted/50 p-4 space-y-4">
               {/* Pricing Mode Selection */}
               <div className="space-y-3">
@@ -555,26 +656,9 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
                       className="w-4 h-4"
                     />
                     <div className="flex-1">
-                      <div className="font-medium">Mensal</div>
+                      <div className="font-medium">Automático (Recomendado)</div>
                       <div className="text-sm text-muted-foreground">
-                        Baseado em €{selectedRoom.monthly_price.toFixed(2)}/mês (€{(selectedRoom.monthly_price / 30).toFixed(2)}/dia)
-                      </div>
-                    </div>
-                  </label>
-
-                  <label className="flex items-center space-x-3 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="pricing_mode"
-                      value="biweekly"
-                      checked={formData.pricing_mode === "biweekly"}
-                      onChange={(e) => setFormData({ ...formData, pricing_mode: "biweekly" })}
-                      className="w-4 h-4"
-                    />
-                    <div className="flex-1">
-                      <div className="font-medium">Quinzenal</div>
-                      <div className="text-sm text-muted-foreground">
-                        Baseado em €{(selectedRoom.monthly_price / 2).toFixed(2)}/quinzena (€{(selectedRoom.monthly_price / 60).toFixed(2)}/dia)
+                        Cálculo baseado no calendário: dias 1-15 = quinzena (€{(selectedRoom.monthly_price / 2).toFixed(2)}), dias 16-31 = mês (€{selectedRoom.monthly_price.toFixed(2)})
                       </div>
                     </div>
                   </label>
@@ -599,48 +683,14 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
               </div>
 
               {/* Price Breakdown */}
-              {formData.pricing_mode !== "manual" && days > 0 && (
+              {formData.pricing_mode !== "manual" && priceBreakdown.length > 0 && (
                 <div className="pt-3 border-t space-y-2">
-                  <div className="text-sm text-muted-foreground">
-                    Duração: {days} dia{days !== 1 ? 's' : ''}
+                  <div className="text-sm font-medium">Cálculo Detalhado:</div>
+                  <div className="text-sm space-y-1">
+                    {priceBreakdown.map((line, index) => (
+                      <div key={index}>• {line}</div>
+                    ))}
                   </div>
-                  {formData.pricing_mode === "monthly" && (() => {
-                    const complete15DayPeriods = Math.floor(days / 15);
-                    const completeMonths = Math.floor(complete15DayPeriods / 2);
-                    const remaining15DayPeriods = complete15DayPeriods % 2;
-                    const biweeklyPrice = selectedRoom.monthly_price / 2;
-                    
-                    return (
-                      <div className="text-sm space-y-1">
-                        <div>• {days} dias ÷ 15 = {complete15DayPeriods} períodos completos de 15 dias</div>
-                        {completeMonths > 0 && (
-                          <div>• {completeMonths} mês(es) × €{selectedRoom.monthly_price.toFixed(2)} = €{(completeMonths * selectedRoom.monthly_price).toFixed(2)}</div>
-                        )}
-                        {remaining15DayPeriods > 0 && (
-                          <div>• {remaining15DayPeriods} período(s) de 15 dias × €{biweeklyPrice.toFixed(2)} = €{(remaining15DayPeriods * biweeklyPrice).toFixed(2)}</div>
-                        )}
-                        {complete15DayPeriods === 0 && (
-                          <div className="text-amber-600">⚠️ Menos de 15 dias - considere ajustar o período</div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                  {formData.pricing_mode === "biweekly" && (() => {
-                    const biweeklyPrice = selectedRoom.monthly_price / 2;
-                    const complete15DayPeriods = Math.floor(days / 15);
-                    
-                    return (
-                      <div className="text-sm space-y-1">
-                        <div>• {days} dias ÷ 15 = {complete15DayPeriods} períodos de 15 dias</div>
-                        {complete15DayPeriods > 0 && (
-                          <div>• {complete15DayPeriods} × €{biweeklyPrice.toFixed(2)} = €{(complete15DayPeriods * biweeklyPrice).toFixed(2)}</div>
-                        )}
-                        {complete15DayPeriods === 0 && (
-                          <div className="text-amber-600">⚠️ Menos de 15 dias - considere ajustar o período</div>
-                        )}
-                      </div>
-                    );
-                  })()}
                 </div>
               )}
 
@@ -667,45 +717,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
                   />
                 </div>
               </div>
-
-              {/* Manual adjustment warning */}
-              {formData.pricing_mode !== "manual" && formData.custom_price && days > 0 && (() => {
-                const currentValue = parseFloat(formData.custom_price);
-                let expectedValue = 0;
-                
-                if (formData.pricing_mode === "monthly") {
-                  if (days >= 30) {
-                    const mesesCompletos = Math.floor(days / 30);
-                    expectedValue = mesesCompletos * selectedRoom.monthly_price;
-                  } else if (days >= 15) {
-                    expectedValue = selectedRoom.monthly_price;
-                  } else {
-                    expectedValue = selectedRoom.monthly_price / 2;
-                  }
-                } else if (formData.pricing_mode === "biweekly") {
-                  const biweeklyPrice = selectedRoom.monthly_price / 2;
-                  if (days >= 15) {
-                    const quinzenasCompletas = Math.floor(days / 15);
-                    expectedValue = quinzenasCompletas * biweeklyPrice;
-                  } else {
-                    expectedValue = biweeklyPrice;
-                  }
-                }
-                
-                const difference = currentValue - expectedValue;
-                
-                if (Math.abs(difference) > 0.01) {
-                  return (
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription>
-                        Valor ajustado manualmente ({difference > 0 ? '+' : ''}€{difference.toFixed(2)})
-                      </AlertDescription>
-                    </Alert>
-                  );
-                }
-                return null;
-              })()}
             </div>
           )}
 
@@ -761,6 +772,73 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
               placeholder="Cama extra, berço, late check-in..."
             />
           </div>
+
+          {/* Monthly Value Adjustment - ONLY FOR EDITING */}
+          {editBooking && (
+            <div className="rounded-lg border bg-blue-50 dark:bg-blue-950/20 p-4 space-y-4">
+              <div className="flex items-start space-x-3">
+                <Calculator className="h-5 w-5 text-blue-600 mt-0.5" />
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <Label className="text-blue-900 dark:text-blue-100 font-semibold">
+                      Ajustar Valor Mensal
+                    </Label>
+                    <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                      Altere o valor mensal para recalcular o total da reserva e atualizar os pagamentos pendentes
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="monthly_value" className="text-sm">
+                        Valor Mensal
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">€</span>
+                        <Input
+                          id="monthly_value"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={monthlyValue}
+                          onChange={(e) => setMonthlyValue(e.target.value)}
+                          placeholder="0.00"
+                          className="pl-7 bg-white dark:bg-gray-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm">Número de Meses</Label>
+                      <div className="h-10 px-3 py-2 rounded-md border bg-muted flex items-center">
+                        <span className="font-medium">{numberOfMonths > 0 ? numberOfMonths : "N/A"}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-blue-200 dark:border-blue-800">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-blue-700 dark:text-blue-300">
+                        Novo Valor Total:
+                      </span>
+                      <span className="text-lg font-bold text-blue-900 dark:text-blue-100">
+                        €{formData.custom_price || "0.00"}
+                      </span>
+                    </div>
+                    {numberOfMonths > 0 ? (
+                      <p className="text-xs text-blue-600 dark:text-blue-400 mt-2">
+                        💡 Os pagamentos pendentes serão atualizados automaticamente com o novo valor mensal
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                        ⚠️ Altere o valor total diretamente ou ajuste as datas para recalcular
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
