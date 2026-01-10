@@ -34,13 +34,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download, Edit2, Trash2 } from "lucide-react";
 import { bookingService } from "@/services/bookingService";
 import { supabase } from "@/integrations/supabase/client";
-import { format, subMonths } from "date-fns";
+import { format, subMonths, parseISO } from "date-fns";
 import { pt } from "date-fns/locale";
 import { exportToExcel, revenueExportColumns } from "@/lib/exportUtils";
 
 export default function ReceitasPage() {
   const [bookings, setBookings] = useState<any[]>([]);
+  const [bookingPayments, setBookingPayments] = useState<any[]>([]);
   const [extraRevenues, setExtraRevenues] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showExtraDialog, setShowExtraDialog] = useState(false);
@@ -61,13 +63,26 @@ export default function ReceitasPage() {
 
   const loadBookingRevenues = useCallback(async () => {
     try {
-      const data = await bookingService.getAll();
+      // Load all booking payments (not bookings themselves)
       const cutoffDate = subMonths(new Date(), period);
-      return data.filter((b: any) => {
-        const isValidStatus = b.status === "paid" || b.status === "completed";
-        const isInPeriod = new Date(b.created_at) >= cutoffDate;
-        return isValidStatus && isInPeriod;
-      });
+      const { data, error } = await supabase
+        .from("booking_payments")
+        .select(`
+          *,
+          bookings (
+            booking_number,
+            check_in_date,
+            check_out_date,
+            guests (full_name),
+            rooms (room_number)
+          )
+        `)
+        .eq("status", "paid")
+        .gte("paid_date", cutoffDate.toISOString())
+        .order("paid_date", { ascending: false });
+
+      if (error) throw error;
+      return data || [];
     } catch (error) {
       console.error("Error loading booking revenues:", error);
       return [];
@@ -85,6 +100,10 @@ export default function ReceitasPage() {
             booking_number,
             guests (full_name),
             rooms (room_number)
+          ),
+          bank_accounts (
+            name,
+            bank_name
           )
         `)
         .gte("date", cutoffDate.toISOString())
@@ -98,21 +117,39 @@ export default function ReceitasPage() {
     }
   }, [period]);
 
+  const loadBankAccounts = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("bank_accounts")
+        .select("*")
+        .eq("is_active", true)
+        .order("name");
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error("Error loading bank accounts:", error);
+      return [];
+    }
+  }, []);
+
   const loadRevenues = useCallback(async () => {
     try {
       setLoading(true);
-      const [bookingsData, extrasData] = await Promise.all([
+      const [paymentsData, extrasData, bankAccountsData] = await Promise.all([
         loadBookingRevenues(),
         loadExtraRevenues(),
+        loadBankAccounts(),
       ]);
-      setBookings(bookingsData);
+      setBookingPayments(paymentsData);
       setExtraRevenues(extrasData);
+      setBankAccounts(bankAccountsData);
     } catch (error) {
       console.error("Error loading revenues:", error);
     } finally {
       setLoading(false);
     }
-  }, [loadBookingRevenues, loadExtraRevenues]);
+  }, [loadBookingRevenues, loadExtraRevenues, loadBankAccounts]);
 
   useEffect(() => {
     loadRevenues();
@@ -255,8 +292,8 @@ export default function ReceitasPage() {
   }, []);
 
   const totalBookingRevenue = useMemo(() => 
-    bookings.reduce((sum, b) => sum + b.total_amount, 0),
-    [bookings]
+    bookingPayments.reduce((sum, p) => sum + p.amount, 0),
+    [bookingPayments]
   );
 
   const totalExtraRevenue = useMemo(() => 
@@ -271,31 +308,33 @@ export default function ReceitasPage() {
 
   const allRevenues = useMemo(() => {
     const combined = [
-      ...bookings.map((b) => ({
-        id: b.id,
+      ...bookingPayments.map((p) => ({
+        id: p.id,
         type: "booking" as const,
-        date: b.created_at,
-        description: `Reserva #${b.booking_number || b.id.slice(0, 8)}`,
-        customer: b.guests?.full_name || "N/A",
-        room: b.rooms?.room_number || "N/A",
-        nights: b.num_nights,
-        amount: b.total_amount,
-        channel: "Site",
+        date: p.paid_date || p.due_date,
+        description: `Pagamento #${p.bookings?.booking_number || p.id.slice(0, 8)} - ${p.payment_type}`,
+        customer: p.bookings?.guests?.full_name || "N/A",
+        room: p.bookings?.rooms?.room_number || "N/A",
+        nights: "-",
+        amount: p.amount,
+        channel: "Reserva",
+        bank_account: null,
       })),
       ...extraRevenues.map((e) => ({
         id: e.id,
         type: "extra" as const,
         date: e.date,
         description: e.description,
-        customer: e.bookings?.guests?.full_name || "N/A",
+        customer: e.bookings?.guests?.full_name || "-",
         room: e.bookings?.rooms?.room_number || "-",
         nights: "-",
         amount: e.amount,
         channel: "Extra",
+        bank_account: e.bank_accounts?.name || "-",
       })),
     ];
     return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [bookings, extraRevenues]);
+  }, [bookingPayments, extraRevenues]);
 
   const filteredRevenues = useMemo(() => {
     return allRevenues.filter((revenue) => {
@@ -378,7 +417,7 @@ export default function ReceitasPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">€{totalBookingRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">{bookings.length} reservas pagas</p>
+              <p className="text-xs text-muted-foreground">{bookingPayments.length} pagamentos</p>
             </CardContent>
           </Card>
 
@@ -433,7 +472,7 @@ export default function ReceitasPage() {
                   <TableHead>Cliente</TableHead>
                   <TableHead>Quarto</TableHead>
                   <TableHead>Descrição</TableHead>
-                  <TableHead>Noites</TableHead>
+                  <TableHead>Conta Bancária</TableHead>
                   <TableHead className="text-right">Valor</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
@@ -441,7 +480,7 @@ export default function ReceitasPage() {
               <TableBody>
                 {filteredRevenues.map((revenue) => (
                   <TableRow key={`${revenue.type}-${revenue.id}`}>
-                    <TableCell>{format(new Date(revenue.date), "dd MMM yyyy", { locale: pt })}</TableCell>
+                    <TableCell>{format(parseISO(revenue.date), "dd MMM yyyy", { locale: pt })}</TableCell>
                     <TableCell>
                       <Badge variant={revenue.type === "booking" ? "default" : "secondary"}>
                         {revenue.type === "booking" ? "Reserva" : "Extra"}
@@ -450,7 +489,7 @@ export default function ReceitasPage() {
                     <TableCell>{revenue.customer}</TableCell>
                     <TableCell>{revenue.room}</TableCell>
                     <TableCell>{revenue.description}</TableCell>
-                    <TableCell>{revenue.nights}</TableCell>
+                    <TableCell>{revenue.bank_account}</TableCell>
                     <TableCell className="text-right font-semibold text-green-600">
                       €{revenue.amount.toFixed(2)}
                     </TableCell>
@@ -494,6 +533,7 @@ export default function ReceitasPage() {
           onOpenChange={handleCloseExtraDialog} 
           onSuccess={handleExtraRevenueSuccess}
           editRevenue={editingExtraRevenue}
+          bankAccounts={bankAccounts}
         />
 
         <Dialog open={showBookingRevenueDialog} onOpenChange={setShowBookingRevenueDialog}>

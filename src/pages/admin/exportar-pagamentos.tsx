@@ -12,6 +12,8 @@ import { paymentService } from "@/services/paymentService";
 import { roomService } from "@/services/roomService";
 import { exportPaymentsToExcel } from "@/lib/exportUtils";
 import type { PaymentWithDetails } from "@/types";
+import { parseISO, format } from "date-fns";
+import { pt } from "date-fns/locale";
 
 type PaymentStatus = "all" | "pending" | "completed" | "overdue";
 
@@ -101,7 +103,7 @@ export default function ExportarPagamentosPage() {
         if (selectedStatus === "completed") return p.status === "completed";
         if (selectedStatus === "pending") return p.status === "pending";
         if (selectedStatus === "overdue") {
-          return p.status === "pending" && p.due_date && new Date(p.due_date) < new Date();
+          return p.status === "pending" && p.due_date && parseISO(p.due_date) < new Date();
         }
         return true;
       });
@@ -177,24 +179,24 @@ export default function ExportarPagamentosPage() {
   };
 
   const getStatusLabel = (payment: PaymentWithDetails) => {
-    if (payment.status === "paid") return "Pago";
+    if (payment.status === "completed") return "Pago";
     if (payment.status === "refunded") return "Devolvido";
     if (payment.status === "pending") {
-      const isOverdue = payment.due_date && new Date(payment.due_date) < new Date();
+      const isOverdue = payment.due_date && parseISO(payment.due_date) < new Date();
       return isOverdue ? "Atrasado" : "Pendente";
     }
     return payment.status;
   };
 
   const getStatusBadge = (payment: PaymentWithDetails) => {
-    if (payment.status === "paid" || payment.status === "completed") {
+    if (payment.status === "completed") {
       return <Badge className="bg-green-500">✅ Pago</Badge>;
     }
     if (payment.status === "refunded") {
       return <Badge className="bg-blue-500">🔄 Devolvido</Badge>;
     }
     if (payment.status === "pending") {
-      const isOverdue = payment.due_date && new Date(payment.due_date) < new Date();
+      const isOverdue = payment.due_date && parseISO(payment.due_date) < new Date();
       return isOverdue ? (
         <Badge className="bg-red-500">🔴 Atrasado</Badge>
       ) : (
@@ -369,12 +371,12 @@ export default function ExportarPagamentosPage() {
                           <TableCell>{getPaymentTypeLabel(payment.payment_type)}</TableCell>
                           <TableCell>€{payment.amount.toFixed(2)}</TableCell>
                           <TableCell>
-                            {payment.due_date ? new Date(payment.due_date).toLocaleDateString("pt-PT") : "N/A"}
+                            {payment.due_date ? format(parseISO(payment.due_date), "dd/MM/yyyy", { locale: pt }) : "N/A"}
                           </TableCell>
                           <TableCell>{getStatusBadge(payment)}</TableCell>
                           <TableCell>
                             {payment.paid_at
-                              ? new Date(payment.paid_at).toLocaleDateString("pt-PT")
+                              ? format(parseISO(payment.paid_at), "dd/MM/yyyy", { locale: pt })
                               : "-"}
                           </TableCell>
                           <TableCell>{payment.payment_method || "-"}</TableCell>

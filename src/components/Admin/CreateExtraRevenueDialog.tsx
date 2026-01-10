@@ -13,9 +13,10 @@ interface CreateExtraRevenueDialogProps {
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
   editRevenue?: any;
+  bankAccounts: any[];
 }
 
-export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRevenue }: CreateExtraRevenueDialogProps) {
+export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRevenue, bankAccounts }: CreateExtraRevenueDialogProps) {
   const [formData, setFormData] = useState({
     type: "other",
     description: "",
@@ -23,6 +24,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
     date: new Date().toISOString().split("T")[0],
     booking_id: "",
     payment_method: "credit_card",
+    bank_account_id: "",
   });
   const [loading, setLoading] = useState(false);
   const [bookings, setBookings] = useState<any[]>([]);
@@ -84,6 +86,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
           date: editRevenue.date || new Date().toISOString().split("T")[0],
           booking_id: editRevenue.booking_id || "",
           payment_method: editRevenue.payment_method || "credit_card",
+          bank_account_id: editRevenue.bank_account_id || "",
         });
       } else {
         // Reset form for create mode
@@ -94,6 +97,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
           date: new Date().toISOString().split("T")[0],
           booking_id: "",
           payment_method: "credit_card",
+          bank_account_id: "",
         });
       }
     }
@@ -110,6 +114,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
         amount: parseFloat(formData.amount),
         date: formData.date,
         booking_id: formData.booking_id || null,
+        bank_account_id: formData.bank_account_id || null,
       };
 
       if (editRevenue) {
@@ -140,6 +145,7 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
         date: new Date().toISOString().split("T")[0],
         booking_id: "",
         payment_method: "credit_card",
+        bank_account_id: "",
       });
       lastEditRevenueId.current = null;
     } catch (error) {
@@ -233,6 +239,26 @@ export function CreateExtraRevenueDialog({ open, onOpenChange, onSuccess, editRe
                 {bookings.map((booking) => (
                   <SelectItem key={booking.id} value={booking.id}>
                     #{booking.booking_number} - {booking.guests?.full_name} (Quarto {booking.rooms?.room_number})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="bank_account_id">Conta Bancária *</Label>
+            <Select 
+              value={formData.bank_account_id} 
+              onValueChange={(value) => setFormData({ ...formData, bank_account_id: value })}
+              required
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione a conta bancária" />
+              </SelectTrigger>
+              <SelectContent>
+                {bankAccounts.map((account) => (
+                  <SelectItem key={account.id} value={account.id}>
+                    {account.name} {account.bank_name ? `- ${account.bank_name}` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
