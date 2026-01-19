@@ -21,6 +21,7 @@ import { expenseService } from "@/services/expenseService";
 import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
 import { extraRevenueService } from "@/services/extraRevenueService";
+import { paymentService } from "@/services/paymentService";
 
 export default function FinanceiroPage() {
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
@@ -44,45 +45,41 @@ export default function FinanceiroPage() {
       console.log('Period:', period, 'months');
       console.log('Cutoff date:', cutoffDate.toISOString());
       
-      // Load all extra revenues (includes payments synced from bookings)
+      // Load all extra revenues
       const allExtraRevenues = await extraRevenueService.getAll();
       console.log('Total extra revenues in database:', allExtraRevenues.length);
+      
+      // Load all completed payments
+      const allPayments = await paymentService.getAll();
+      const completedPayments = allPayments.filter(p => p.status === "completed" && p.paid_at);
+      console.log('Total completed payments in database:', completedPayments.length);
       
       // Filter revenues by date
       const revenuesInPeriod = allExtraRevenues.filter(r => {
         const revenueDate = new Date(r.date);
-        const isInPeriod = revenueDate >= cutoffDate && revenueDate <= new Date();
-        
-        if (isInPeriod) {
-          console.log(`Revenue ${r.id}:`, {
-            date: revenueDate.toISOString(),
-            amount: r.amount,
-            type: r.type,
-            description: r.description
-          });
-        }
-        
-        return isInPeriod;
+        return revenueDate >= cutoffDate && revenueDate <= new Date();
+      });
+      
+      // Filter payments by date
+      const paymentsInPeriod = completedPayments.filter(p => {
+        const paymentDate = new Date(p.paid_at!);
+        return paymentDate >= cutoffDate && paymentDate <= new Date();
       });
       
       console.log('Revenues in current period:', revenuesInPeriod.length);
+      console.log('Payments in current period:', paymentsInPeriod.length);
       
-      // Separate booking-related revenues (Mensalidades, Cauções) from true extra revenues
-      const bookingRevenues = revenuesInPeriod.filter(r => 
-        r.type === "Mensalidades" || r.type === "Cauções"
-      );
-      const extraRevenues = revenuesInPeriod.filter(r => 
-        r.type !== "Mensalidades" && r.type !== "Cauções"
-      );
+      // Calculate revenue from extra revenues
+      const extraRevenueTotal = revenuesInPeriod.reduce((sum, r) => sum + r.amount, 0);
       
-      const bookingRevenueTotal = bookingRevenues.reduce((sum, r) => sum + r.amount, 0);
-      const extraRevenueTotal = extraRevenues.reduce((sum, r) => sum + r.amount, 0);
+      // Calculate revenue from completed payments
+      const paymentsRevenueTotal = paymentsInPeriod.reduce((sum, p) => sum + p.amount, 0);
       
-      console.log('Booking revenues (Mensalidades + Cauções):', bookingRevenueTotal);
-      console.log('Extra revenues (others):', extraRevenueTotal);
+      console.log('Extra revenues total:', extraRevenueTotal);
+      console.log('Payments revenue total:', paymentsRevenueTotal);
       
-      // Total revenue = booking revenues + extra revenues
-      const totalRevenue = bookingRevenueTotal + extraRevenueTotal;
+      // Total revenue = extra revenues + payments
+      const totalRevenue = extraRevenueTotal + paymentsRevenueTotal;
       console.log('TOTAL REVENUE:', totalRevenue);
       
       // Calculate previous period for comparison
@@ -91,8 +88,13 @@ export default function FinanceiroPage() {
         const revenueDate = new Date(r.date);
         return revenueDate >= previousCutoffDate && revenueDate < cutoffDate;
       });
+      const previousPayments = completedPayments.filter(p => {
+        const paymentDate = new Date(p.paid_at!);
+        return paymentDate >= previousCutoffDate && paymentDate < cutoffDate;
+      });
       
-      const prevTotalRevenue = previousRevenues.reduce((sum, r) => sum + r.amount, 0);
+      const prevTotalRevenue = previousRevenues.reduce((sum, r) => sum + r.amount, 0) + 
+                               previousPayments.reduce((sum, p) => sum + p.amount, 0);
       console.log('Previous period revenue:', prevTotalRevenue);
       setPreviousRevenue(prevTotalRevenue);
       
@@ -121,6 +123,26 @@ export default function FinanceiroPage() {
           date: r.date,
           category: r.type || "Receita",
         })),
+        ...paymentsInPeriod.map(p => {
+          const booking = Array.isArray(p.bookings) ? p.bookings[0] : p.bookings;
+          const room = booking?.rooms;
+          const guest = booking?.guests;
+          
+          const paymentTypeLabel = p.payment_type === "deposit" 
+            ? "Caução" 
+            : p.payment_type === "monthly" 
+            ? "Mensalidade" 
+            : "Pagamento";
+            
+          return {
+            id: p.id,
+            type: "revenue" as const,
+            description: `${paymentTypeLabel} - Reserva #${booking?.booking_number || ''} - ${guest?.full_name || ''} - ${room?.name || ''}`,
+            amount: p.amount,
+            date: p.paid_at!,
+            category: paymentTypeLabel,
+          };
+        }),
         ...filteredExpenses.map(e => ({
           id: e.id,
           type: "expense" as const,

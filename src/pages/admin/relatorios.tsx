@@ -21,6 +21,7 @@ import { bookingService } from "@/services/bookingService";
 import { expenseService } from "@/services/expenseService";
 import { roomService } from "@/services/roomService";
 import { extraRevenueService } from "@/services/extraRevenueService";
+import { paymentService } from "@/services/paymentService";
 import { format, subMonths, startOfMonth, endOfMonth, eachMonthOfInterval, subYears } from "date-fns";
 import { pt } from "date-fns/locale";
 
@@ -51,11 +52,12 @@ export default function RelatoriosPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [bookingsData, expensesData, roomsData, extraRevenuesData] = await Promise.all([
+      const [bookingsData, expensesData, roomsData, extraRevenuesData, paymentsData] = await Promise.all([
         bookingService.getAll(),
         expenseService.getAll(),
         roomService.getAll(),
         extraRevenueService.getAll(),
+        paymentService.getAll(),
       ]);
 
       setBookings(bookingsData);
@@ -63,8 +65,8 @@ export default function RelatoriosPage() {
       setRooms(roomsData);
       setExtraRevenues(extraRevenuesData);
 
-      // Calculate monthly stats
-      calculateMonthlyStats(bookingsData, expensesData, roomsData, extraRevenuesData);
+      // Calculate monthly stats including payments
+      calculateMonthlyStats(bookingsData, expensesData, roomsData, extraRevenuesData, paymentsData.filter(p => p.status === "completed" && p.paid_at));
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -72,7 +74,7 @@ export default function RelatoriosPage() {
     }
   };
 
-  const calculateMonthlyStats = (bookings: any[], expenses: any[], rooms: any[], extraRevenues: any[]) => {
+  const calculateMonthlyStats = (bookings: any[], expenses: any[], rooms: any[], extraRevenues: any[], completedPayments: any[]) => {
     const monthsToShow = parseInt(period);
     const endDate = new Date();
     const startDate = subMonths(startOfMonth(endDate), monthsToShow - 1);
@@ -89,10 +91,16 @@ export default function RelatoriosPage() {
         return checkIn >= monthStart && checkIn <= monthEnd;
       });
 
-      // Filter extra revenues for this month (including synced payments)
+      // Filter extra revenues for this month
       const monthExtraRevenues = extraRevenues.filter(r => {
         const revenueDate = new Date(r.date);
         return revenueDate >= monthStart && revenueDate <= monthEnd;
+      });
+
+      // Filter completed payments for this month
+      const monthPayments = completedPayments.filter(p => {
+        const paymentDate = new Date(p.paid_at!);
+        return paymentDate >= monthStart && paymentDate <= monthEnd;
       });
 
       // Filter expenses for this month
@@ -101,16 +109,14 @@ export default function RelatoriosPage() {
         return expenseDate >= monthStart && expenseDate <= monthEnd;
       });
 
-      // Calculate revenue from paid/completed bookings
-      const bookingRevenue = monthBookings
-        .filter(b => b.status === "paid" || b.status === "completed")
-        .reduce((sum, b) => sum + b.total_amount, 0);
-
-      // Calculate revenue from extra revenues (including synced payments)
+      // Calculate revenue from extra revenues
       const extraRevenue = monthExtraRevenues.reduce((sum, r) => sum + r.amount, 0);
 
-      // Total revenue = bookings + extra revenues
-      const revenue = bookingRevenue + extraRevenue;
+      // Calculate revenue from completed payments
+      const paymentsRevenue = monthPayments.reduce((sum, p) => sum + p.amount, 0);
+
+      // Total revenue = extra revenues + payments
+      const revenue = extraRevenue + paymentsRevenue;
 
       // Calculate expenses
       const totalExpenses = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -172,14 +178,21 @@ export default function RelatoriosPage() {
   const previousYearStart = subYears(subMonths(startOfMonth(new Date()), parseInt(period) - 1), 1);
   const previousYearEnd = subYears(new Date(), 1);
   
-  const previousYearBookings = bookings.filter(b => {
-    const checkIn = new Date(b.check_in_date);
-    return checkIn >= previousYearStart && checkIn <= previousYearEnd;
+  const previousYearRevenues = extraRevenues.filter(r => {
+    const revenueDate = new Date(r.date);
+    return revenueDate >= previousYearStart && revenueDate <= previousYearEnd;
   });
 
-  const previousYearRevenue = previousYearBookings
-    .filter(b => b.status === "paid" || b.status === "completed")
-    .reduce((sum, b) => sum + b.total_amount, 0);
+  const previousYearPayments = (async () => {
+    const allPayments = await paymentService.getAll();
+    return allPayments.filter(p => {
+      if (p.status !== "completed" || !p.paid_at) return false;
+      const paymentDate = new Date(p.paid_at);
+      return paymentDate >= previousYearStart && paymentDate <= previousYearEnd;
+    });
+  })();
+
+  const previousYearRevenue = previousYearRevenues.reduce((sum, r) => sum + r.amount, 0);
 
   const revenueGrowth = previousYearRevenue > 0 
     ? ((totalRevenue - previousYearRevenue) / previousYearRevenue) * 100 
