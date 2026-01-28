@@ -26,7 +26,7 @@ export const expenseService = {
           color
         )
       `)
-      .order("date", { ascending: false });
+      .order("date", { ascending: false }); // Correct: database column is named 'date'
 
     if (error) throw error;
     return data || [];
@@ -43,9 +43,9 @@ export const expenseService = {
           color
         )
       `)
-      .gte("expense_date", startDate)
-      .lte("expense_date", endDate)
-      .order("expense_date", { ascending: false });
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: false });
 
     if (error) throw error;
     return data || [];

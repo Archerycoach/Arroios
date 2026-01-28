@@ -31,7 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Search, Edit2, Trash2, TrendingUp, DollarSign, Calendar, Download } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, TrendingUp, DollarSign, Calendar, Download, Filter } from "lucide-react";
 import { expenseService } from "@/services/expenseService";
 import { format, subMonths } from "date-fns";
 import { pt } from "date-fns/locale";
@@ -54,6 +54,8 @@ export default function ExpensesPage() {
   const [editingExpense, setEditingExpense] = useState<any>(null);
   const [editingCategory, setEditingCategory] = useState<ExpenseCategory | null>(null);
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
+  const [filterCategory, setFilterCategory] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
   
   const [formData, setFormData] = useState({
     description: "",
@@ -61,7 +63,7 @@ export default function ExpensesPage() {
     date: new Date().toISOString().split("T")[0],
     category_id: "",
     supplier: "",
-    payment_method: "card",
+    payment_method: "credit_card",
     notes: "",
     is_recurring: false,
   });
@@ -102,8 +104,16 @@ export default function ExpensesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    console.log("Form submitted with data:", formData);
+    
     if (!formData.description || !formData.amount || !formData.category_id) {
-      alert("Por favor, preencha todos os campos obrigatórios");
+      const missingFields = [];
+      if (!formData.description) missingFields.push("descrição");
+      if (!formData.amount) missingFields.push("valor");
+      if (!formData.category_id) missingFields.push("categoria");
+      
+      alert(`Por favor, preencha todos os campos obrigatórios: ${missingFields.join(", ")}`);
+      console.error("Missing required fields:", missingFields);
       return;
     }
 
@@ -111,7 +121,7 @@ export default function ExpensesPage() {
       const expenseData = {
         description: formData.description,
         amount: parseFloat(formData.amount),
-        date: formData.date, // Fix: use date instead of expense_date
+        date: formData.date,
         category_id: formData.category_id || null,
         supplier: formData.supplier || null,
         payment_method: formData.payment_method as any,
@@ -119,15 +129,17 @@ export default function ExpensesPage() {
         notes: formData.notes || null,
       };
 
+      console.log("Sending expense data:", expenseData);
+
       if (editingExpense) {
+        console.log("Updating expense:", editingExpense.id);
         await expenseService.update(editingExpense.id, expenseData);
       } else {
+        console.log("Creating new expense");
         await expenseService.create(expenseData);
       }
 
-      await loadExpenses();
-      setShowCreateDialog(false);
-      setEditingExpense(null);
+      console.log("Expense saved successfully");
       
       // Reset form
       setFormData({
@@ -136,13 +148,26 @@ export default function ExpensesPage() {
         date: new Date().toISOString().split("T")[0],
         category_id: "",
         supplier: "",
-        payment_method: "card",
+        payment_method: "credit_card",
         notes: "",
-        is_recurring: false, // Fix: Add missing is_recurring
+        is_recurring: false,
       });
+      
+      setShowCreateDialog(false);
+      setEditingExpense(null);
+      
+      // Reload expenses immediately
+      await loadExpenses();
+      
+      alert("Despesa guardada com sucesso!");
     } catch (error) {
       console.error("Error saving expense:", error);
-      alert("Erro ao guardar despesa. Por favor, tente novamente.");
+      
+      let errorMessage = "Erro ao guardar despesa.";
+      if (error instanceof Error) {
+        errorMessage += ` Detalhes: ${error.message}`;
+      }
+      alert(errorMessage);
     }
   };
 
@@ -166,9 +191,9 @@ export default function ExpensesPage() {
       date: expense.date,
       category_id: expense.category_id || "",
       supplier: expense.supplier || "",
-      payment_method: expense.payment_method || "card",
+      payment_method: expense.payment_method || "credit_card",
       notes: expense.notes || "",
-      is_recurring: expense.is_recurring || false, // Fix: Add missing is_recurring
+      is_recurring: expense.is_recurring || false,
     });
     setShowCreateDialog(true);
   };
@@ -180,7 +205,7 @@ export default function ExpensesPage() {
       date: new Date().toISOString().split("T")[0],
       category_id: "",
       supplier: "",
-      payment_method: "card",
+      payment_method: "credit_card",
       notes: "",
       is_recurring: false,
     });
@@ -225,10 +250,19 @@ export default function ExpensesPage() {
 
   const filteredExpenses = expenses.filter((expense) => {
     const query = searchQuery.toLowerCase();
-    return (
-      expense.description.toLowerCase().includes(query) ||
-      expense.supplier?.toLowerCase().includes(query)
-    );
+    const matchesSearch = expense.description.toLowerCase().includes(query) ||
+      expense.supplier?.toLowerCase().includes(query);
+    
+    const matchesCategory = filterCategory === "all" || expense.category_id === filterCategory;
+    
+    let matchesMonth = true;
+    if (filterMonth !== "all") {
+      const expenseDate = new Date(expense.date);
+      const expenseYearMonth = `${expenseDate.getFullYear()}-${String(expenseDate.getMonth() + 1).padStart(2, "0")}`;
+      matchesMonth = expenseYearMonth === filterMonth;
+    }
+    
+    return matchesSearch && matchesCategory && matchesMonth;
   });
 
   const totalExpenses = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -249,6 +283,22 @@ export default function ExpensesPage() {
         {category.name}
       </Badge>
     );
+  };
+
+  const getAvailableMonths = () => {
+    const months = new Set<string>();
+    expenses.forEach(expense => {
+      const date = new Date(expense.date);
+      const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      months.add(yearMonth);
+    });
+    return Array.from(months).sort().reverse();
+  };
+
+  const formatMonthLabel = (yearMonth: string) => {
+    const [year, month] = yearMonth.split("-");
+    const date = new Date(parseInt(year), parseInt(month) - 1);
+    return format(date, "MMMM yyyy", { locale: pt });
   };
 
   if (loading) {
@@ -305,7 +355,7 @@ export default function ExpensesPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">€{totalExpenses.toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Este mês</p>
+                <p className="text-xs text-muted-foreground mt-1">Filtradas</p>
               </CardContent>
             </Card>
 
@@ -315,8 +365,8 @@ export default function ExpensesPage() {
                 <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">€{(totalExpenses / 12).toFixed(2)}</div>
-                <p className="text-xs text-muted-foreground mt-1">Estimativa anual</p>
+                <div className="text-2xl font-bold">€{(totalExpenses / period).toFixed(2)}</div>
+                <p className="text-xs text-muted-foreground mt-1">Baseado no período</p>
               </CardContent>
             </Card>
 
@@ -383,20 +433,68 @@ export default function ExpensesPage() {
             </CardContent>
           </Card>
 
-          {/* Search */}
+          {/* Filters */}
           <Card>
             <CardHeader>
-              <CardTitle>Pesquisar Despesas</CardTitle>
+              <div className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                <CardTitle>Filtros</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Pesquisar por descrição ou fornecedor..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="space-y-2">
+                  <Label>Pesquisar</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Descrição ou fornecedor..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Categoria</Label>
+                  <Select value={filterCategory} onValueChange={setFilterCategory}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as Categorias</SelectItem>
+                      {categories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          <div className="flex items-center gap-2">
+                            <div
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: cat.color }}
+                            />
+                            {cat.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Mês</Label>
+                  <Select value={filterMonth} onValueChange={setFilterMonth}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Meses</SelectItem>
+                      {getAvailableMonths().map((month) => (
+                        <SelectItem key={month} value={month}>
+                          {formatMonthLabel(month)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardContent>
           </Card>
