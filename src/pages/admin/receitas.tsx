@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { AdminLayout } from "@/components/Admin/AdminLayout";
 import { CreateExtraRevenueDialog } from "@/components/Admin/CreateExtraRevenueDialog";
+import { EditPaymentDialog } from "@/components/Admin/EditPaymentDialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,42 +32,33 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download, Edit2, Trash2 } from "lucide-react";
-import { bookingService } from "@/services/bookingService";
+import { Search, Plus, TrendingUp, DollarSign, Sparkles, Hotel, Loader2, Download, Edit2, Trash2, Filter } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { format, subMonths, parseISO } from "date-fns";
+import { format, subMonths, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import { pt } from "date-fns/locale";
 import { exportToExcel, revenueExportColumns } from "@/lib/exportUtils";
 
 export default function ReceitasPage() {
-  const [bookings, setBookings] = useState<any[]>([]);
   const [bookingPayments, setBookingPayments] = useState<any[]>([]);
   const [extraRevenues, setExtraRevenues] = useState<any[]>([]);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showExtraDialog, setShowExtraDialog] = useState(false);
-  const [showBookingRevenueDialog, setShowBookingRevenueDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("all");
   const [period, setPeriod] = useState<1 | 3 | 6 | 12>(1);
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("date_desc");
   const [editingExtraRevenue, setEditingExtraRevenue] = useState<any>(null);
+  const [editingPayment, setEditingPayment] = useState<any>(null);
+  const [showPaymentEditDialog, setShowPaymentEditDialog] = useState(false);
 
-  const [bookingRevenueForm, setBookingRevenueForm] = useState({
-    booking_id: "",
-    description: "",
-    amount: "",
-    date: new Date().toISOString().split("T")[0],
-    payment_method: "card",
-  });
-  const [availableBookings, setAvailableBookings] = useState<any[]>([]);
-  const [savingBookingRevenue, setSavingBookingRevenue] = useState(false);
-
-  const loadBookingRevenues = useCallback(async () => {
+  const loadBookingPayments = useCallback(async () => {
     try {
-      // Load all booking payments (not bookings themselves)
       const cutoffDate = subMonths(new Date(), period);
       const { data, error } = await supabase
-        .from("booking_payments")
+        .from("payments")
         .select(`
           *,
           bookings (
@@ -77,14 +69,14 @@ export default function ReceitasPage() {
             rooms (room_number)
           )
         `)
-        .eq("status", "paid")
-        .gte("paid_date", cutoffDate.toISOString())
-        .order("paid_date", { ascending: false });
+        .eq("status", "completed")
+        .gte("paid_at", cutoffDate.toISOString())
+        .order("paid_at", { ascending: false });
 
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error("Error loading booking revenues:", error);
+      console.error("Error loading booking payments:", error);
       return [];
     }
   }, [period]);
@@ -106,6 +98,7 @@ export default function ReceitasPage() {
             bank_name
           )
         `)
+        .not("type", "in", '("Mensalidades","Cauções")')
         .gte("date", cutoffDate.toISOString())
         .order("date", { ascending: false });
 
@@ -137,7 +130,7 @@ export default function ReceitasPage() {
     try {
       setLoading(true);
       const [paymentsData, extrasData, bankAccountsData] = await Promise.all([
-        loadBookingRevenues(),
+        loadBookingPayments(),
         loadExtraRevenues(),
         loadBankAccounts(),
       ]);
@@ -149,44 +142,11 @@ export default function ReceitasPage() {
     } finally {
       setLoading(false);
     }
-  }, [loadBookingRevenues, loadExtraRevenues, loadBankAccounts]);
+  }, [loadBookingPayments, loadExtraRevenues, loadBankAccounts]);
 
   useEffect(() => {
     loadRevenues();
   }, [loadRevenues]);
-
-  const loadAvailableBookings = useCallback(async () => {
-    try {
-      const { data, error } = await supabase
-        .from("bookings")
-        .select(`
-          id,
-          booking_number,
-          check_in_date,
-          check_out_date,
-          total_amount,
-          guests (
-            full_name
-          ),
-          rooms (
-            room_number
-          )
-        `)
-        .in("status", ["confirmed", "completed"])
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      setAvailableBookings(data || []);
-    } catch (error) {
-      console.error("Error loading bookings:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (showBookingRevenueDialog) {
-      loadAvailableBookings();
-    }
-  }, [showBookingRevenueDialog, loadAvailableBookings]);
 
   const handleExtraRevenueSuccess = useCallback(() => {
     loadRevenues();
@@ -197,6 +157,19 @@ export default function ReceitasPage() {
     setEditingExtraRevenue(revenue);
     setShowExtraDialog(true);
   }, []);
+
+  const handleEditPayment = useCallback((paymentId: string) => {
+    const payment = bookingPayments.find(p => p.id === paymentId);
+    if (payment) {
+      setEditingPayment(payment);
+      setShowPaymentEditDialog(true);
+    }
+  }, [bookingPayments]);
+
+  const handlePaymentUpdateSuccess = useCallback(() => {
+    loadRevenues();
+    setEditingPayment(null);
+  }, [loadRevenues]);
 
   const handleDeleteExtraRevenue = useCallback(async (id: string) => {
     if (!confirm("Tem certeza que deseja eliminar esta receita extra?")) return;
@@ -215,56 +188,21 @@ export default function ReceitasPage() {
     }
   }, [loadRevenues]);
 
-  const handleCreateBookingRevenue = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSavingBookingRevenue(true);
-
-    try {
-      const revenueData = {
-        type: "booking_payment",
-        description: bookingRevenueForm.description || "Pagamento de reserva",
-        amount: parseFloat(bookingRevenueForm.amount),
-        date: bookingRevenueForm.date,
-        booking_id: bookingRevenueForm.booking_id || null,
-      };
-
-      const { error } = await supabase.from("extra_revenues").insert([revenueData]);
-
-      if (error) throw error;
-
-      await loadRevenues();
-      setShowBookingRevenueDialog(false);
-
-      setBookingRevenueForm({
-        booking_id: "",
-        description: "",
-        amount: "",
-        date: new Date().toISOString().split("T")[0],
-        payment_method: "card",
-      });
-    } catch (error) {
-      console.error("Error creating booking revenue:", error);
-      alert("Erro ao criar receita de reserva");
-    } finally {
-      setSavingBookingRevenue(false);
-    }
-  }, [bookingRevenueForm, loadRevenues]);
-
   const handleExportToExcel = useCallback(() => {
     const exportData = filteredRevenues.map(revenue => ({
       date: revenue.date,
-      type: revenue.type === "booking" ? "Reserva" : "Extra",
+      type: revenue.type === "booking" ? "Pagamento de Reserva" : "Receita Extra",
       customer: revenue.customer,
       room: revenue.room,
       description: revenue.description,
-      nights: revenue.nights,
       amount: revenue.amount,
-      channel: revenue.channel,
+      bank_account: revenue.bank_account,
     }));
 
     const periodLabel = period === 1 ? "1mes" : period === 3 ? "3meses" : period === 6 ? "6meses" : "12meses";
-    exportToExcel(exportData, revenueExportColumns, `receitas_${periodLabel}`);
-  }, [period]);
+    const monthLabel = selectedMonth !== "all" ? `_${selectedMonth}` : "";
+    exportToExcel(exportData, revenueExportColumns, `receitas_${periodLabel}${monthLabel}`);
+  }, [period, selectedMonth]);
 
   const handlePeriodChange = useCallback((v: string) => {
     setPeriod(Number(v) as 1 | 3 | 6 | 12);
@@ -272,10 +210,6 @@ export default function ReceitasPage() {
 
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
-  }, []);
-
-  const handleShowBookingDialog = useCallback(() => {
-    setShowBookingRevenueDialog(true);
   }, []);
 
   const handleShowExtraDialog = useCallback(() => {
@@ -287,11 +221,7 @@ export default function ReceitasPage() {
     if (!open) setEditingExtraRevenue(null);
   }, []);
 
-  const handleCloseBookingDialog = useCallback(() => {
-    setShowBookingRevenueDialog(false);
-  }, []);
-
-  const totalBookingRevenue = useMemo(() => 
+  const totalBookingPayments = useMemo(() => 
     bookingPayments.reduce((sum, p) => sum + p.amount, 0),
     [bookingPayments]
   );
@@ -302,24 +232,56 @@ export default function ReceitasPage() {
   );
 
   const totalRevenue = useMemo(() => 
-    totalBookingRevenue + totalExtraRevenue,
-    [totalBookingRevenue, totalExtraRevenue]
+    totalBookingPayments + totalExtraRevenue,
+    [totalBookingPayments, totalExtraRevenue]
   );
+
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>();
+    
+    bookingPayments.forEach(p => {
+      if (p.paid_at) {
+        const monthKey = format(parseISO(p.paid_at), "yyyy-MM");
+        months.add(monthKey);
+      }
+    });
+    
+    extraRevenues.forEach(e => {
+      const monthKey = format(parseISO(e.date), "yyyy-MM");
+      months.add(monthKey);
+    });
+    
+    return Array.from(months).sort().reverse();
+  }, [bookingPayments, extraRevenues]);
+
+  const monthOptions = useMemo(() => {
+    return availableMonths.map(month => ({
+      value: month,
+      label: format(parseISO(month + "-01"), "MMMM yyyy", { locale: pt })
+        .replace(/^\w/, (c) => c.toUpperCase())
+    }));
+  }, [availableMonths]);
 
   const allRevenues = useMemo(() => {
     const combined = [
-      ...bookingPayments.map((p) => ({
-        id: p.id,
-        type: "booking" as const,
-        date: p.paid_date || p.due_date,
-        description: `Pagamento #${p.bookings?.booking_number || p.id.slice(0, 8)} - ${p.payment_type}`,
-        customer: p.bookings?.guests?.full_name || "N/A",
-        room: p.bookings?.rooms?.room_number || "N/A",
-        nights: "-",
-        amount: p.amount,
-        channel: "Reserva",
-        bank_account: null,
-      })),
+      ...bookingPayments.map((p) => {
+        const paymentTypeLabel = p.payment_type === "deposit" 
+          ? "Caução" 
+          : p.payment_type === "monthly" 
+          ? "Mensalidade" 
+          : "Pagamento";
+        
+        return {
+          id: p.id,
+          type: "booking" as const,
+          date: p.paid_at || p.due_date,
+          description: `${paymentTypeLabel} #${p.bookings?.booking_number || p.id.slice(0, 8)}`,
+          customer: p.bookings?.guests?.full_name || "N/A",
+          room: p.bookings?.rooms?.room_number || "N/A",
+          amount: p.amount,
+          bank_account: "-",
+        };
+      }),
       ...extraRevenues.map((e) => ({
         id: e.id,
         type: "extra" as const,
@@ -327,29 +289,55 @@ export default function ReceitasPage() {
         description: e.description,
         customer: e.bookings?.guests?.full_name || "-",
         room: e.bookings?.rooms?.room_number || "-",
-        nights: "-",
         amount: e.amount,
-        channel: "Extra",
         bank_account: e.bank_accounts?.name || "-",
       })),
     ];
-    return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return combined;
   }, [bookingPayments, extraRevenues]);
 
   const filteredRevenues = useMemo(() => {
-    return allRevenues.filter((revenue) => {
+    const filtered = allRevenues.filter((revenue) => {
       const query = searchQuery.toLowerCase();
       const matchesSearch =
         revenue.description.toLowerCase().includes(query) ||
         revenue.customer.toLowerCase().includes(query) ||
         revenue.room.toString().toLowerCase().includes(query);
 
-      if (activeTab === "all") return matchesSearch;
-      if (activeTab === "bookings") return matchesSearch && revenue.type === "booking";
-      if (activeTab === "extras") return matchesSearch && revenue.type === "extra";
-      return matchesSearch;
+      const matchesMonth = selectedMonth === "all" || 
+        format(parseISO(revenue.date), "yyyy-MM") === selectedMonth;
+
+      const matchesTab = 
+        activeTab === "all" ||
+        (activeTab === "bookings" && revenue.type === "booking") ||
+        (activeTab === "extras" && revenue.type === "extra");
+
+      return matchesSearch && matchesMonth && matchesTab;
     });
-  }, [allRevenues, searchQuery, activeTab]);
+
+    return filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "date_asc":
+          return new Date(a.date).getTime() - new Date(b.date).getTime();
+        case "date_desc":
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        case "amount_asc":
+          return a.amount - b.amount;
+        case "amount_desc":
+          return b.amount - a.amount;
+        case "guest_asc":
+          return a.customer.localeCompare(b.customer);
+        case "guest_desc":
+          return b.customer.localeCompare(a.customer);
+        case "room_asc":
+          return a.room.toString().localeCompare(b.room.toString(), undefined, { numeric: true });
+        case "room_desc":
+          return b.room.toString().localeCompare(a.room.toString(), undefined, { numeric: true });
+        default:
+          return 0;
+      }
+    });
+  }, [allRevenues, searchQuery, selectedMonth, activeTab, sortBy]);
 
   if (loading) {
     return (
@@ -367,7 +355,7 @@ export default function ReceitasPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Receitas</h1>
-            <p className="text-muted-foreground mt-2">Análise de todas as entradas de receita</p>
+            <p className="text-muted-foreground mt-2">Análise de pagamentos recebidos e receitas extras</p>
           </div>
           <div className="flex gap-2">
             <Select value={period.toString()} onValueChange={handlePeriodChange}>
@@ -385,10 +373,6 @@ export default function ReceitasPage() {
               <Download className="h-4 w-4 mr-2" />
               Exportar Excel
             </Button>
-            <Button onClick={handleShowBookingDialog} variant="outline">
-              <Hotel className="h-4 w-4 mr-2" />
-              Receita
-            </Button>
             <Button onClick={handleShowExtraDialog}>
               <Plus className="h-4 w-4 mr-2" />
               Receita Extra
@@ -399,25 +383,25 @@ export default function ReceitasPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Receita Total</CardTitle>
+              <CardTitle className="text-sm font-medium">Receita Total (Paga)</CardTitle>
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">€{totalRevenue.toFixed(2)}</div>
               <p className="text-xs text-muted-foreground">
-                <span className="text-green-500">+18.5%</span> vs mês anterior
+                Valores efetivamente recebidos
               </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Reservas</CardTitle>
+              <CardTitle className="text-sm font-medium">Pagamentos de Reservas</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">€{totalBookingRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">{bookingPayments.length} pagamentos</p>
+              <div className="text-2xl font-bold">€{totalBookingPayments.toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">{bookingPayments.length} pagamentos recebidos</p>
             </CardContent>
           </Card>
 
@@ -428,24 +412,68 @@ export default function ReceitasPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">€{totalExtraRevenue.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">{extraRevenues.length} serviços extras</p>
+              <p className="text-xs text-muted-foreground">{extraRevenues.length} receitas extras</p>
             </CardContent>
           </Card>
         </div>
 
         <Card>
           <CardHeader>
-            <CardTitle>Pesquisar Receitas</CardTitle>
+            <div className="flex items-center gap-2">
+              <Filter className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>Filtros</CardTitle>
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Pesquisar por cliente, quarto ou descrição..."
-                value={searchQuery}
-                onChange={handleSearchChange}
-                className="pl-10"
-              />
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Pesquisar</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Cliente, descrição ou quarto..."
+                    value={searchQuery}
+                    onChange={handleSearchChange}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="month-filter">Filtrar por Mês</Label>
+                <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                  <SelectTrigger id="month-filter" className="w-[200px]">
+                    <SelectValue placeholder="Selecionar mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os meses</SelectItem>
+                    {monthOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="sort-filter">Ordenar por</Label>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger id="sort-filter" className="w-[200px]">
+                    <SelectValue placeholder="Ordenar por..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="date_desc">Data (Mais recente)</SelectItem>
+                    <SelectItem value="date_asc">Data (Mais antiga)</SelectItem>
+                    <SelectItem value="amount_desc">Valor (Maior)</SelectItem>
+                    <SelectItem value="amount_asc">Valor (Menor)</SelectItem>
+                    <SelectItem value="guest_asc">Hóspede (A-Z)</SelectItem>
+                    <SelectItem value="guest_desc">Hóspede (Z-A)</SelectItem>
+                    <SelectItem value="room_asc">Quarto (Crescente)</SelectItem>
+                    <SelectItem value="room_desc">Quarto (Decrescente)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -457,8 +485,8 @@ export default function ReceitasPage() {
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList>
                   <TabsTrigger value="all">Todas</TabsTrigger>
-                  <TabsTrigger value="bookings">Reservas</TabsTrigger>
-                  <TabsTrigger value="extras">Extras</TabsTrigger>
+                  <TabsTrigger value="bookings">Pagamentos de Reservas</TabsTrigger>
+                  <TabsTrigger value="extras">Receitas Extras</TabsTrigger>
                 </TabsList>
               </Tabs>
             </div>
@@ -473,7 +501,7 @@ export default function ReceitasPage() {
                   <TableHead>Quarto</TableHead>
                   <TableHead>Descrição</TableHead>
                   <TableHead>Conta Bancária</TableHead>
-                  <TableHead className="text-right">Valor</TableHead>
+                  <TableHead className="text-right">Valor Pago</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -483,7 +511,7 @@ export default function ReceitasPage() {
                     <TableCell>{format(parseISO(revenue.date), "dd MMM yyyy", { locale: pt })}</TableCell>
                     <TableCell>
                       <Badge variant={revenue.type === "booking" ? "default" : "secondary"}>
-                        {revenue.type === "booking" ? "Reserva" : "Extra"}
+                        {revenue.type === "booking" ? "Pagamento" : "Extra"}
                       </Badge>
                     </TableCell>
                     <TableCell>{revenue.customer}</TableCell>
@@ -512,6 +540,17 @@ export default function ReceitasPage() {
                           </Button>
                         </div>
                       )}
+                      {revenue.type === "booking" && (
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEditPayment(revenue.id)}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -536,101 +575,14 @@ export default function ReceitasPage() {
           bankAccounts={bankAccounts}
         />
 
-        <Dialog open={showBookingRevenueDialog} onOpenChange={setShowBookingRevenueDialog}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>Nova Receita de Reserva</DialogTitle>
-              <DialogDescription>Registar pagamento de uma reserva existente</DialogDescription>
-            </DialogHeader>
-
-            <form onSubmit={handleCreateBookingRevenue} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="booking_id_revenue">Reserva *</Label>
-                <Select
-                  value={bookingRevenueForm.booking_id}
-                  onValueChange={(value) => setBookingRevenueForm({ ...bookingRevenueForm, booking_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione uma reserva" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableBookings.map((booking) => (
-                      <SelectItem key={booking.id} value={booking.id}>
-                        #{booking.booking_number} - {booking.guests?.full_name} - Quarto {booking.rooms?.room_number} - €
-                        {booking.total_amount}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="amount_revenue">Valor (€) *</Label>
-                <Input
-                  id="amount_revenue"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={bookingRevenueForm.amount}
-                  onChange={(e) => setBookingRevenueForm({ ...bookingRevenueForm, amount: e.target.value })}
-                  placeholder="0.00"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="date_revenue">Data do Pagamento *</Label>
-                <Input
-                  id="date_revenue"
-                  type="date"
-                  value={bookingRevenueForm.date}
-                  onChange={(e) => setBookingRevenueForm({ ...bookingRevenueForm, date: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description_revenue">Descrição (Opcional)</Label>
-                <Textarea
-                  id="description_revenue"
-                  value={bookingRevenueForm.description}
-                  onChange={(e) => setBookingRevenueForm({ ...bookingRevenueForm, description: e.target.value })}
-                  placeholder="Detalhes adicionais do pagamento..."
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="payment_method_revenue">Método de Pagamento</Label>
-                <Select
-                  value={bookingRevenueForm.payment_method}
-                  onValueChange={(value) => setBookingRevenueForm({ ...bookingRevenueForm, payment_method: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o método" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="card">💳 Cartão</SelectItem>
-                    <SelectItem value="cash">💵 Dinheiro</SelectItem>
-                    <SelectItem value="transfer">🏦 Transferência</SelectItem>
-                    <SelectItem value="mbway">📱 MB Way</SelectItem>
-                    <SelectItem value="multibanco">🎫 Multibanco</SelectItem>
-                    <SelectItem value="paypal">💳 PayPal</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={handleCloseBookingDialog}>
-                  Cancelar
-                </Button>
-                <Button type="submit" disabled={savingBookingRevenue}>
-                  {savingBookingRevenue && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                  Registar Receita
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        {editingPayment && (
+          <EditPaymentDialog
+            open={showPaymentEditDialog}
+            onOpenChange={setShowPaymentEditDialog}
+            payment={editingPayment}
+            onSuccess={handlePaymentUpdateSuccess}
+          />
+        )}
       </div>
     </AdminLayout>
   );

@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { paymentService } from "@/services/paymentService";
 import type { Database } from "@/integrations/supabase/types";
-import { CheckCircle2, Clock, RefreshCw, Euro, Download } from "lucide-react";
+import { CheckCircle2, Clock, RefreshCw, Euro, Download, Edit } from "lucide-react";
 import { MarkPaymentPaidDialog } from "./MarkPaymentPaidDialog";
 import { RefundDepositDialog } from "./RefundDepositDialog";
+import { EditPaymentDialog } from "./EditPaymentDialog";
 import * as XLSX from "xlsx";
 
 type Payment = Database["public"]["Tables"]["payments"]["Row"];
@@ -21,6 +22,7 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
   const [loading, setLoading] = useState(true);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showMarkPaidDialog, setShowMarkPaidDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
   const [showRefundDialog, setShowRefundDialog] = useState(false);
   const [stats, setStats] = useState({ total: 0, paid: 0, pending: 0, depositStatus: null as string | null });
 
@@ -74,6 +76,15 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
 
     loadPayments();
     setShowMarkPaidDialog(false);
+    setSelectedPayment(null);
+    onPaymentUpdate?.();
+  }, [loadPayments, onPaymentUpdate]);
+
+  const handlePaymentUpdated = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    loadPayments();
+    setShowEditDialog(false);
     setSelectedPayment(null);
     onPaymentUpdate?.();
   }, [loadPayments, onPaymentUpdate]);
@@ -224,7 +235,7 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                         </div>
                         <div className="flex items-center gap-3">
                           <span className="text-lg font-semibold">€{payment.amount.toFixed(2)}</span>
-                          {payment.status === "pending" && (
+                          {payment.status === "pending" ? (
                             <Button
                               size="sm"
                               onClick={(e) => {
@@ -234,6 +245,19 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                               }}
                             >
                               Marcar como Pago
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedPayment(payment);
+                                setShowEditDialog(true);
+                              }}
+                            >
+                              <Edit className="h-4 w-4 text-muted-foreground hover:text-primary" />
                             </Button>
                           )}
                         </div>
@@ -266,7 +290,7 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-lg font-semibold">€{depositPayment.amount.toFixed(2)}</span>
-                        {depositPayment.status === "pending" && (
+                        {depositPayment.status === "pending" ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -276,6 +300,19 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
                             }}
                           >
                             Devolver Caução
+                          </Button>
+                        ) : depositPayment.status === "completed" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedPayment(depositPayment);
+                              setShowEditDialog(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4 text-muted-foreground hover:text-primary" />
                           </Button>
                         )}
                       </div>
@@ -345,6 +382,16 @@ export function BookingPaymentsList({ bookingId, onPaymentUpdate }: BookingPayme
           onOpenChange={setShowMarkPaidDialog}
           payment={selectedPayment}
           onSuccess={handlePaymentMarkedPaid}
+        />
+      )}
+
+      {/* Edit Payment Dialog */}
+      {selectedPayment && (
+        <EditPaymentDialog
+          open={showEditDialog}
+          onOpenChange={setShowEditDialog}
+          payment={selectedPayment}
+          onSuccess={handlePaymentUpdated}
         />
       )}
 

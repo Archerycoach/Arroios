@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 import { sanitizeForDatabase } from "@/lib/dataUtils";
+import { paymentService } from "./paymentService";
+import { calculateBookingPeriods } from "@/lib/dataUtils";
 
 type Booking = Database["public"]["Tables"]["bookings"]["Row"];
 type BookingInsert = Database["public"]["Tables"]["bookings"]["Insert"];
@@ -211,6 +213,42 @@ export const bookingService = {
       .single();
 
     if (error) throw error;
+
+    // If total_amount or check_in_date changed, regenerate pending payments
+    if (updates.total_amount !== undefined || updates.check_in_date || updates.check_out_date) {
+      try {
+        // Fetch the updated booking to get room price and recalculate installments
+        const { data: updatedBooking } = await supabase
+          .from("bookings")
+          .select("*, rooms(monthly_price)")
+          .eq("id", id)
+          .single();
+
+        if (updatedBooking) {
+          const checkIn = new Date(updatedBooking.check_in_date);
+          const checkOut = new Date(updatedBooking.check_out_date);
+          const roomPrice = (updatedBooking.rooms as any)?.monthly_price || 0;
+
+          // Use the same calculation logic as the dialog
+          const { monthlyEquivalent } = calculateBookingPeriods(checkIn, checkOut, roomPrice);
+          
+          const totalAmount = updatedBooking.total_amount || 0;
+          const monthlyAmount = monthlyEquivalent > 0 ? totalAmount / monthlyEquivalent : totalAmount;
+
+          // Regenerate pending payments with correct number of installments
+          await paymentService.regeneratePendingPayments(
+            id,
+            monthlyAmount,
+            monthlyEquivalent,
+            updatedBooking.check_in_date
+          );
+        }
+      } catch (error) {
+        console.error("Error regenerating payments:", error);
+        // Don't throw - booking update succeeded, payment regeneration is secondary
+      }
+    }
+
     return data;
   },
 

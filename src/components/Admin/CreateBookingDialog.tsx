@@ -31,6 +31,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
   const [guests, setGuests] = useState<Guest[]>([]);
   const [allBookings, setAllBookings] = useState<BookingWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
   const [showNewGuestForm, setShowNewGuestForm] = useState(false);
   const [dateConflictError, setDateConflictError] = useState<string>("");
   const [includeDeposit, setIncludeDeposit] = useState(true);
@@ -61,60 +62,61 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     tax_id: "",
   });
 
+  // Load initial data when dialog opens
   useEffect(() => {
     if (open) {
-      const initializeDialog = async () => {
-        // First, load all required data
-        await loadData();
-        setDateConflictError("");
-        
-        if (editBooking) {
-          // Now that data is loaded, fill the form
-          setFormData({
-            guest_id: editBooking.guest_id,
-            room_id: editBooking.room_id,
-            check_in_date: editBooking.check_in_date.split('T')[0],
-            check_out_date: editBooking.check_out_date.split('T')[0],
-            custom_price: editBooking.total_amount?.toString() || "",
-            pricing_mode: editBooking.payment_type === "monthly" || editBooking.payment_type === "biweekly" 
-              ? editBooking.payment_type 
-              : "manual",
-            status: "confirmed",
-            special_requests: editBooking.special_notes || "",
-          });
-          setIncludeDeposit(false);
-          
-          // Load payment stats and calculate values
-          const actualMonthlyAmount = await loadPaymentStats(editBooking.id);
-          
-          // Find the room from loaded data
-          const roomsData = await roomService.getAll();
-          const selectedRoom = roomsData.find(r => r.id === editBooking.room_id);
-          
-          if (selectedRoom) {
-            const checkIn = new Date(editBooking.check_in_date);
-            const checkOut = new Date(editBooking.check_out_date);
-            const calculation = calculateBookingPeriods(checkIn, checkOut, selectedRoom.monthly_price);
-            
-            setNumberOfMonths(calculation.monthlyEquivalent);
-            setPriceBreakdown(calculation.breakdown);
-            
-            // Prioritize actual monthly amount from pending payments
-            // If no pending payments, fall back to room price (as requested)
-            if (actualMonthlyAmount) {
-              setMonthlyValue(actualMonthlyAmount.toFixed(2));
-            } else {
-              setMonthlyValue(selectedRoom.monthly_price.toFixed(2));
-            }
-          }
-        } else {
-          resetForm();
-        }
-      };
-      
-      initializeDialog();
+      setDataLoaded(false);
+      loadData().then(() => {
+        setDataLoaded(true);
+      });
+      setDateConflictError("");
+      setShowNewGuestForm(false);
     }
-  }, [open, editBooking]);
+  }, [open]);
+
+  // Fill form with edit data AFTER data is loaded
+  useEffect(() => {
+    if (open && dataLoaded && editBooking) {
+      console.log("Loading edit booking data:", editBooking);
+      
+      setFormData({
+        guest_id: editBooking.guest_id,
+        room_id: editBooking.room_id,
+        check_in_date: editBooking.check_in_date.split("T")[0],
+        check_out_date: editBooking.check_out_date.split("T")[0],
+        custom_price: editBooking.total_amount?.toString() || "",
+        pricing_mode: editBooking.payment_type === "monthly" || editBooking.payment_type === "biweekly" 
+          ? editBooking.payment_type 
+          : "manual",
+        status: "confirmed",
+        special_requests: editBooking.special_notes || "",
+      });
+      
+      setIncludeDeposit(false);
+      
+      // Load payment stats and calculate values
+      loadPaymentStats(editBooking.id).then((actualMonthlyAmount) => {
+        const selectedRoom = rooms.find(r => r.id === editBooking.room_id);
+        
+        if (selectedRoom) {
+          const checkIn = new Date(editBooking.check_in_date);
+          const checkOut = new Date(editBooking.check_out_date);
+          const calculation = calculateBookingPeriods(checkIn, checkOut, selectedRoom.monthly_price);
+          
+          setNumberOfMonths(calculation.monthlyEquivalent);
+          setPriceBreakdown(calculation.breakdown);
+          
+          if (actualMonthlyAmount) {
+            setMonthlyValue(actualMonthlyAmount.toFixed(2));
+          } else {
+            setMonthlyValue(selectedRoom.monthly_price.toFixed(2));
+          }
+        }
+      });
+    } else if (open && dataLoaded && !editBooking) {
+      resetForm();
+    }
+  }, [open, dataLoaded, editBooking?.id, rooms]);
 
   // Validate dates whenever room or dates change
   useEffect(() => {
@@ -123,7 +125,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     } else {
       setDateConflictError("");
     }
-  }, [formData.room_id, formData.check_in_date, formData.check_out_date]);
+  }, [formData.room_id, formData.check_in_date, formData.check_out_date, allBookings]);
 
   // Calculate price when room, dates, or pricing mode change
   useEffect(() => {
@@ -136,13 +138,11 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
 
       if (checkOut <= checkIn) return;
 
-      // Use new calendar-based calculation
       const calculation = calculateBookingPeriods(checkIn, checkOut, selectedRoom.monthly_price);
       
       setFormData(prev => ({ ...prev, custom_price: calculation.totalPrice.toFixed(2) }));
       setPriceBreakdown(calculation.breakdown);
       
-      // Set monthly value for payment generation
       if (!editBooking && calculation.monthlyEquivalent > 0) {
         setMonthlyValue((calculation.totalPrice / calculation.monthlyEquivalent).toFixed(2));
         setNumberOfMonths(calculation.monthlyEquivalent);
@@ -155,23 +155,19 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     if (editBooking && monthlyValue) {
       const monthly = parseFloat(monthlyValue);
       
-      // Only recalculate if we have a valid number and stats loaded
       if (!isNaN(monthly)) {
         let newTotal: number;
         
-        // If we have pending monthly payments, use them for calculation
         if (paymentStats.pendingMonthlyCount > 0) {
            newTotal = paymentStats.paid + paymentStats.otherPending + (monthly * paymentStats.pendingMonthlyCount);
         } else if (numberOfMonths > 0) {
-           // Fallback if no specific payment stats (rare case or new booking being edited before payments generated)
            newTotal = monthly * numberOfMonths;
         } else {
-          return; // Don't update if we can't calculate
+          return;
         }
         
         const newTotalString = newTotal.toFixed(2);
         
-        // Only update if the value actually changed (prevent infinite loop)
         if (formData.custom_price !== newTotalString) {
           setFormData(prev => ({ ...prev, custom_price: newTotalString }));
         }
@@ -231,7 +227,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
           otherPending
         });
         
-        // Find current monthly amount from pending payments if available
         if (pendingMonthly.length > 0) {
           return pendingMonthly[0].amount;
         }
@@ -252,7 +247,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     const checkIn = new Date(checkInStr);
     const checkOut = new Date(checkOutStr);
 
-    // Filter out current booking if editing
     const roomBookings = allBookings.filter(
       booking => booking.room_id === roomId && booking.status !== "cancelled" && booking.id !== editBooking?.id
     );
@@ -327,11 +321,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
       return;
     }
 
-    if (!formData.custom_price || parseFloat(formData.custom_price) <= 0) {
-      alert("Por favor, defina um valor válido para a reserva");
-      return;
-    }
-
     if (dateConflictError) {
       alert("Não é possível criar a reserva devido a conflito de datas");
       return;
@@ -376,17 +365,20 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
       };
 
       if (editBooking) {
-        // UPDATE
         await bookingService.update(editBooking.id, bookingData);
         
-        // Update pending monthly payments with new monthly value
-        if (monthlyValue && parseFloat(monthlyValue) > 0) {
+        if (monthlyValue && parseFloat(monthlyValue) > 0 && numberOfMonths > 0) {
           const newMonthlyAmount = parseFloat(monthlyValue);
-          const updatedCount = await paymentService.updatePendingPaymentAmounts(editBooking.id, newMonthlyAmount);
+          const regenerated = await paymentService.regeneratePendingPayments(
+            editBooking.id,
+            newMonthlyAmount,
+            numberOfMonths,
+            formData.check_in_date
+          );
           
           toast({
             title: "Reserva atualizada",
-            description: `A reserva foi atualizada. ${updatedCount} pagamento(s) pendente(s) foram atualizados com o novo valor mensal.`,
+            description: `A reserva foi atualizada. ${regenerated.regenerated} pagamento(s) foram regenerados.`,
           });
         } else {
           toast({
@@ -395,7 +387,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
           });
         }
       } else {
-        // CREATE
         const userResponse = await supabase.auth.getUser();
         const userId = userResponse.data.user?.id;
         
@@ -460,6 +451,7 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
     setMonthlyValue("");
     setNumberOfMonths(0);
     setPriceBreakdown([]);
+    setPaymentStats({ paid: 0, pendingMonthlyCount: 0, otherPending: 0 });
   };
 
   const selectedRoom = rooms.find(r => r.id === formData.room_id);
@@ -486,7 +478,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
             <Select 
               value={formData.room_id} 
               onValueChange={(value) => setFormData({ ...formData, room_id: value })}
-              disabled={!!editBooking}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione o quarto" />
@@ -499,7 +490,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
                 ))}
               </SelectContent>
             </Select>
-            {editBooking && <p className="text-xs text-muted-foreground">O quarto não pode ser alterado na edição.</p>}
           </div>
 
           {/* Guest Selection */}
@@ -525,7 +515,6 @@ export function CreateBookingDialog({ open, onOpenChange, onSuccess, editBooking
               <Select 
                 value={formData.guest_id} 
                 onValueChange={(value) => setFormData({ ...formData, guest_id: value })}
-                disabled={!!editBooking}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o cliente" />

@@ -84,7 +84,28 @@ export default function ExportarPagamentosPage() {
     // Filter by month
     if (selectedMonth !== "all") {
       filtered = filtered.filter((p) => {
-        const paymentMonth = p.due_date?.substring(0, 7); // YYYY-MM
+        if (!p.due_date) return false;
+        
+        const dueDate = parseISO(p.due_date);
+        const year = dueDate.getFullYear();
+        const month = dueDate.getMonth() + 1; // 1-12
+        const day = dueDate.getDate();
+        
+        // Get last day of this month
+        const lastDayOfMonth = new Date(year, month, 0).getDate();
+        
+        // If payment is due on the last day of the month, it belongs to the NEXT month
+        let paymentMonth: string;
+        if (day === lastDayOfMonth) {
+          // Last day of month → belongs to next month
+          const nextMonth = month === 12 ? 1 : month + 1;
+          const nextYear = month === 12 ? year + 1 : year;
+          paymentMonth = `${nextYear}-${String(nextMonth).padStart(2, "0")}`;
+        } else {
+          // Regular day → belongs to current month
+          paymentMonth = `${year}-${String(month).padStart(2, "0")}`;
+        }
+        
         return paymentMonth === selectedMonth;
       });
     }

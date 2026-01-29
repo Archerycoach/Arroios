@@ -596,6 +596,95 @@ export const paymentService = {
   },
 
   /**
+   * Regenerate pending payments when booking dates/amounts change
+   * Deletes all pending payments and creates new ones based on updated booking details
+   */
+  async regeneratePendingPayments(
+    bookingId: string,
+    monthlyAmount: number,
+    numberOfInstallments: number,
+    checkInDate: string,
+    depositAmount?: number
+  ): Promise<{ success: boolean; regenerated: number; error?: string }> {
+    try {
+      // Get booking details to fetch room's bank account
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select(`
+          *,
+          rooms!inner (
+            bank_account_id
+          )
+        `)
+        .eq("id", bookingId)
+        .single();
+
+      if (bookingError) throw bookingError;
+
+      const bankAccountId = booking.rooms?.bank_account_id || null;
+
+      // Delete all pending payments (keep completed/refunded ones)
+      const { error: deleteError } = await supabase
+        .from("payments")
+        .delete()
+        .eq("booking_id", bookingId)
+        .eq("status", "pending");
+
+      if (deleteError) throw deleteError;
+
+      // Generate new pending payments
+      const baseDate = new Date(checkInDate);
+      const payments = [];
+
+      // Add security deposit if provided and amount > 0
+      if (depositAmount && depositAmount > 0) {
+        payments.push({
+          booking_id: bookingId,
+          amount: depositAmount,
+          due_date: baseDate.toISOString(),
+          payment_type: "deposit",
+          status: "pending",
+          bank_account_id: bankAccountId,
+          payment_method: "bank_transfer",
+        });
+      }
+
+      // Generate monthly payments using the provided numberOfInstallments
+      console.log(`Generating ${numberOfInstallments} installments of €${monthlyAmount} each`);
+      
+      for (let i = 0; i < numberOfInstallments; i++) {
+        const dueDate = new Date(baseDate);
+        dueDate.setDate(dueDate.getDate() + (i * 30));
+
+        payments.push({
+          booking_id: bookingId,
+          amount: monthlyAmount,
+          due_date: dueDate.toISOString(),
+          payment_type: "monthly",
+          status: "pending",
+          bank_account_id: bankAccountId,
+          payment_method: "bank_transfer",
+        });
+      }
+
+      const { error: insertError } = await supabase
+        .from("payments")
+        .insert(payments as any);
+
+      if (insertError) throw insertError;
+
+      return { success: true, regenerated: payments.length };
+    } catch (error) {
+      console.error("Error regenerating pending payments:", error);
+      return {
+        success: false,
+        regenerated: 0,
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  },
+
+  /**
    * Migrate existing completed payments to revenues
    */
   async syncPaymentsToRevenues(): Promise<{
@@ -696,6 +785,109 @@ export const paymentService = {
         synced,
         skipped,
         errors,
+      };
+    }
+  },
+
+  /**
+   * Update a completed payment
+   */
+  async updatePayment(
+    paymentId: string,
+    newAmount: number,
+    newStatus: "completed" | "refunded" | "pending",
+    newPaidDate?: string,
+    newPaymentMethod?: string,
+    newNotes?: string,
+    newBankAccountId?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // First, get the payment details to create revenue
+      const { data: payment, error: fetchError } = await supabase
+        .from("payments")
+        .select(`
+          *,
+          bookings!inner (
+            id,
+            booking_number,
+            room_id,
+            rooms!inner (
+              name,
+              room_number
+            )
+          )
+        `)
+        .eq("id", paymentId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update payment status
+      const { error } = await supabase
+        .from("payments")
+        .update({
+          amount: newAmount,
+          status: newStatus,
+          paid_at: newPaidDate ? new Date(newPaidDate).toISOString() : undefined,
+          payment_method: newPaymentMethod as any,
+          notes: newNotes,
+          bank_account_id: newBankAccountId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", paymentId);
+
+      if (error) throw error;
+
+      // Update revenue entry if it exists
+      // Check if there's a revenue for this payment
+      const { data: revenues } = await supabase
+        .from("extra_revenues")
+        .select("id")
+        .eq("booking_id", payment.booking_id)
+        .eq("amount", payment.amount) // Try to match by old amount
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (revenues && revenues.length > 0) {
+        // Update existing revenue
+        await extraRevenueService.update(revenues[0].id, {
+          amount: newAmount,
+          date: newPaidDate || new Date().toISOString(),
+          payment_method: newPaymentMethod || payment.payment_method,
+          bank_account_id: newBankAccountId || null,
+          notes: newNotes || null,
+        });
+      } else if (newStatus === "completed") {
+        // Create new revenue if not found and status is completed
+        const booking = Array.isArray(payment.bookings) ? payment.bookings[0] : payment.bookings;
+        const room = booking?.rooms;
+        
+        const paymentTypeLabel = payment.payment_type === "deposit" 
+          ? "Caução" 
+          : payment.payment_type === "monthly" 
+          ? "Mensalidade" 
+          : "Pagamento";
+
+        const description = `${paymentTypeLabel} - Reserva #${booking?.booking_number || payment.booking_id} - ${room?.name || ''} (Quarto ${room?.room_number || ''})`;
+
+        await extraRevenueService.create({
+          booking_id: payment.booking_id,
+          amount: newAmount,
+          date: newPaidDate || new Date().toISOString(),
+          type: payment.payment_type === "deposit" ? "Cauções" : "Mensalidades",
+          description: description,
+          payment_method: newPaymentMethod || payment.payment_method,
+          bank_account_id: newBankAccountId || null,
+          notes: newNotes || null,
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error("Error updating payment:", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   },
